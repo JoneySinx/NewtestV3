@@ -229,7 +229,7 @@ async def actor_profile_display(req):
     tags_json_payload = html.escape(json.dumps(tags_list))
     safe_bio = html.escape(actor.get("bio", ""))
 
-    # ✅ 100% DASHBOARD MATCH LAYOUT & CSS SYNC
+    # ✅ 100% DASHBOARD GLASS UI INTEGRATION WITH ON-CLICK LIVE FILTER CAPABILITY
     tab_engine_ui = f'''
     <style>
         .actor-tab-bar {{ display: flex; gap: 10px; border-bottom: 2px solid var(--border); margin-bottom: 25px; }}
@@ -242,8 +242,8 @@ async def actor_profile_display(req):
         .gallery-item {{ width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.2s; }}
         .gallery-item:hover {{ transform: scale(1.03); }}
         
-        /* ── डैशबोर्ड की रिस्पॉन्सिव संरचना ── */
-        .search-zone-actor {{ padding: 0 0 16px 0; }}
+        /* ── डैशबोर्ड की प्रीमियम सीएसएस को री-सिंक किया गया ── */
+        .search-zone-actor {{ padding: 16px 0 0 0; }}
         .search-row1-actor {{ display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }}
         .search-row2-actor {{ display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 16px; }}
         @media(min-width:768px){{
@@ -253,11 +253,26 @@ async def actor_profile_display(req):
         }}
         .search-wrap-actor {{ flex: 1; min-width: 0; display: flex; align-items: center; background: var(--bg3); border: 1.5px solid var(--border); border-radius: 12px; padding: 0 6px 0 18px; gap: 8px; overflow: hidden; min-height: 38px; }}
         .search-input-actor {{ flex: 1; min-width: 0; width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 14px; font-weight: 600; padding: 6px 0; font-family: inherit; }}
-        .search-btn-actor {{ flex-shrink: 0; background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 20px; height: 38px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform .15s; }}
+        .search-input-actor::placeholder {{ color: var(--muted); font-weight: 400; }}
+        .search-btn-actor {{ flex-shrink: 0; background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 20px; height: 38px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform .15s, background .15s; }}
         .search-btn-actor:hover {{ background: var(--accent-hover); transform: scale(1.03); }}
-        .sel-actor {{ background: var(--bg3); color: var(--text); border: 1.5px solid var(--border); padding: 8px 14px; height: 38px; border-radius: 999px; font-size: 11px; font-weight: 700; outline: none; cursor: pointer; font-family: inherit; }}
-        .sel-actor:hover {{ border-color: var(--accent); }}
         
+        /* ── कस्टमाइज़्ड प्रीमियम ड्रॉपडाउन लुक ── */
+        .cdd-wrap-actor {{ flex: 0 1 auto; min-width: 0; position: relative; user-select: none; }}
+        .cdd-btn-actor {{ width: auto; background: var(--bg3); color: var(--text); border: 1.5px solid var(--border); border-radius: 999px; padding: 8px 28px 8px 14px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: border-color .15s; }}
+        .cdd-btn-actor:hover, .cdd-btn-actor.open {{ border-color: var(--accent); }}
+        .cdd-arrow-actor {{ position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 9px; color: var(--muted); transition: transform .2s; }}
+        .cdd-btn-actor.open + .cdd-arrow-actor {{ transform: translateY(-50%) rotate(180deg); }}
+        .cdd-menu-actor {{ position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%); min-width: max-content; background: var(--bg2); border: 1.5px solid var(--border); border-radius: 16px; overflow: hidden; z-index: 9999; box-shadow: 0 8px 32px rgba(0,0,0,.45); display: none; }}
+        .cdd-item-actor {{ display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 12px; font-weight: 700; color: var(--text); cursor: pointer; transition: background .12s; border-bottom: 1px solid var(--border); }}
+        .cdd-item-actor:last-child {{ border-bottom: none; }}
+        .cdd-item-actor:hover {{ background: var(--bg3); }}
+        .cdd-item-actor.selected {{ color: var(--accent); }}
+        .cdd-radio-actor {{ width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); margin-left: auto; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }}
+        .cdd-item-actor.selected .cdd-radio-actor {{ border-color: var(--accent); }}
+        .cdd-radio-dot-actor {{ width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: none; }}
+        .cdd-item-actor.selected .cdd-radio-dot-actor {{ display: block; }}
+
         .res-grid {{ display: grid; grid-template-columns: 1fr; gap: 4px; margin-bottom: 24px; }}
         @media(min-width:600px){{ .res-grid {{ grid-template-columns: repeat(3, 1fr); gap: 14px; }} }}
         .file-card {{ background: var(--card); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); transition: transform .22s cubic-bezier(.4,0,.2,1),box-shadow .22s; cursor: pointer; }}
@@ -326,21 +341,34 @@ async def actor_profile_display(req):
             <div class="search-zone-actor">
                 <div class="search-row1-actor">
                     <div class="search-wrap-actor">
-                        <input type="text" id="actor_movie_q" value="{html.escape(actor_name)}" placeholder="Titles, people, genres…" class="search-input-actor">
+                        <input type="text" id="actor_movie_q" value="" placeholder="Search inside actor movies..." class="search-input-actor">
                     </div>
                     <button onclick="resetActorSearchPage(); triggerActorSearchAjax()" class="search-btn-actor">Search</button>
                 </div>
                 <div class="search-row2-actor">
-                    <select id="actor_col_sel" onchange="resetActorSearchPage(); triggerActorSearchAjax()" class="sel-actor">
-                        <option value="all">📂 All Collections</option>
-                        <option value="primary">🟢 Primary</option>
-                        <option value="cloud">🔵 Cloud</option>
-                        <option value="archive">🟠 Archive</option>
-                    </select>
-                    <select id="actor_mode_sel" onchange="resetActorSearchPage(); triggerActorSearchAjax()" class="sel-actor">
-                        <option value="tg">🖼️ Original TG Thumb</option>
-                        <option value="none">⚡ Text Only (Fastest)</option>
-                    </select>
+                    <div class="cdd-wrap-actor">
+                        <div class="cdd-btn-actor" id="cddColBtnActor" onclick="toggleActorCdd('col', event)">
+                            <span id="cddColLabelActor">📂 All Collections</span>
+                        </div>
+                        <span class="cdd-arrow-actor">&#9660;</span>
+                        <div class="cdd-menu-actor" id="cddColMenuActor">
+                            <div class="cdd-item-actor selected" data-val="all" onclick="pickActorCol('all','📂 All Collections',this,event)">📂 All Collections<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                            <div class="cdd-item-actor" data-val="primary" onclick="pickActorCol('primary','🟢 Primary',this,event)">🟢 Primary<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                            <div class="cdd-item-actor" data-val="cloud" onclick="pickActorCol('cloud','🔵 Cloud',this,event)">🔵 Cloud<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                            <div class="cdd-item-actor" data-val="archive" onclick="pickActorCol('archive','🟠 Archive',this,event)">🟠 Archive<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                        </div>
+                    </div>
+
+                    <div class="cdd-wrap-actor">
+                        <div class="cdd-btn-actor" id="cddModeBtnActor" onclick="toggleActorCdd('mode', event)">
+                            <span id="cddModeLabelActor">🖼️ Original TG Thumb</span>
+                        </div>
+                        <span class="cdd-arrow-actor">&#9660;</span>
+                        <div class="cdd-menu-actor" id="cddModeMenuActor">
+                            <div class="cdd-item-actor selected" data-val="tg" onclick="pickActorMode('tg','🖼️ Original TG Thumb',this,event)">🖼️ Original TG Thumb<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                            <div class="cdd-item-actor" data-val="none" onclick="pickActorMode('none','⚡ Text Only (Fastest)',this,event)">⚡ Text Only (Fastest)<span class="cdd-radio-actor"><span class="cdd-radio-dot-actor"></span></span></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -395,6 +423,54 @@ async def actor_profile_display(req):
     <script>
         var actCurPage = 1, actOffset = 0, actNextOffset = "";
         var actLimit = 21;
+        var actorDefaultName = "{html.escape(actor_name)}";
+        var actCol = "all", actMode = "tg";
+
+        /* ── कस्टमाइज़्ड ड्रॉपडाउन जावास्क्रिप्ट इंजन ── */
+        function closeActorCdds(){{
+            document.getElementById('cddColMenuActor').style.display='none';
+            document.getElementById('cddColBtnActor').classList.remove('open');
+            document.getElementById('cddModeMenuActor').style.display='none';
+            document.getElementById('cddModeBtnActor').classList.remove('open');
+        }}
+        function toggleActorCdd(which, e){{
+            if(e){{e.stopPropagation();}}
+            var menuId = which === 'col' ? 'cddColMenuActor' : 'cddModeMenuActor';
+            var btnId = which === 'col' ? 'cddColBtnActor' : 'cddModeBtnActor';
+            var otherId = which === 'col' ? 'cddModeMenuActor' : 'cddColMenuActor';
+            var otherBtnId = which === 'col' ? 'cddModeBtnActor' : 'cddColBtnActor';
+            
+            var menu = document.getElementById(menuId);
+            var btn = document.getElementById(btnId);
+            var isOpen = menu.style.display === 'block';
+            
+            document.getElementById(otherId).style.display = 'none';
+            document.getElementById(otherBtnId).classList.remove('open');
+            
+            if(isOpen){{ menu.style.display = 'none'; btn.classList.remove('open'); }}
+            else{{ menu.style.display = 'block'; btn.classList.add('open'); }}
+        }}
+        function pickActorCol(val, label, el, e){{
+            if(e){{e.stopPropagation();}}
+            actCol = val;
+            document.getElementById('cddColLabelActor').textContent = label;
+            document.querySelectorAll('#cddColMenuActor .cdd-item-actor').forEach(function(i){{i.classList.remove('selected');}});
+            el.classList.add('selected');
+            closeActorCdds();
+            resetActorSearchPage();
+            triggerActorSearchAjax();
+        }}
+        function pickActorMode(val, label, el, e){{
+            if(e){{e.stopPropagation();}}
+            actMode = val;
+            document.getElementById('cddModeLabelActor').textContent = label;
+            document.querySelectorAll('#cddModeMenuActor .cdd-item-actor').forEach(function(i){{i.classList.remove('selected');}});
+            el.classList.add('selected');
+            closeActorCdds();
+            resetActorSearchPage();
+            triggerActorSearchAjax();
+        }}
+        document.addEventListener('click', function(){{ closeActorCdds(); }});
 
         function switchActorTab(evt, tabId) {{
             var panels = document.querySelectorAll('.actor-panel');
@@ -413,18 +489,18 @@ async def actor_profile_display(req):
         function closeActorEditModal() {{ document.getElementById('actorEditModal').classList.remove('open'); }}
         function resetActorSearchPage() {{ actCurPage = 1; actOffset = 0; }}
 
-        // ✅ कोर फिक्स: जब आप सर्च बॉक्स में कुछ टाइप करेंगे, तब भी यह 'id' पैरामीटर के साथ हमेशा टैग्स को डेटाबेस पाइपलाइन में शामिल रखेगा
+        // ✅ कोर फिक्स: टाइप करने पर भी यह एक्टर आईडी को बैकएंड पर रखेगा जिससे टैग्स कभी मिस नहीं होंगे
         async function triggerActorSearchAjax() {{
-            var q = document.getElementById('actor_movie_q').value.trim();
-            var col = document.getElementById('actor_col_sel').value;
-            var mode = document.getElementById('actor_mode_sel').value;
+            var typedQ = document.getElementById('actor_movie_q').value.trim();
+            // अगर इनपुट खाली है तो एक्टर का डिफॉल्ट नाम यूज़ करो, वरना टाइप किया हुआ वर्ड
+            var q = typedQ || actorDefaultName; 
             var grid = document.getElementById('actor_video_results');
             
-            grid.className = 'res-grid mode-' + mode;
+            grid.className = 'res-grid mode-' + actMode;
             grid.innerHTML = '<div class="spin-wrap"><div class="spinner"></div><span>Filtering Cross-Network Matrix...</span></div>';
             
             try {{
-                var targetUrl = '/api/actor/search?q=' + encodeURIComponent(q) + '&offset=' + actOffset + '&col=' + col + '&mode=' + mode + '&id={actor_id}';
+                var targetUrl = '/api/actor/search?q=' + encodeURIComponent(q) + '&offset=' + actOffset + '&col=' + actCol + '&mode=' + actMode + '&id={actor_id}';
                 var r = await fetch(targetUrl);
                 var d = await r.json();
                 if(!d.results || !d.results.length) {{
@@ -436,7 +512,7 @@ async def actor_profile_display(req):
                 d.results.forEach(function(f) {{
                     var sc = (f.source || 'primary').toLowerCase();
                     var posterHtml = '';
-                    if(mode !== 'none') {{
+                    if(actMode !== 'none') {{
                         posterHtml = '<div class="poster-box">' +
                             '<img src="'+f.tg_thumb+'" class="fc-poster" onload="this.classList.add(\\'loaded\\')" loading="lazy">' +
                             '<div class="poster-top">' +
