@@ -369,10 +369,13 @@ async def actor_profile_display(req):
                 }}
                 var h = '';
                 d.results.forEach(function(f) {{
+                    // ✅ FIX: source_col को हमेशा lowercase करो (DB "Primary" → "primary")
                     var sc = (f.source || 'primary').toLowerCase();
+                    if(!['primary','cloud','archive'].includes(sc)) sc = 'primary';
                     var posterHtml = '';
                     if(mode !== 'none') {{
-                        posterHtml = '<div class="poster-box"><img src="'+f.tg_thumb+'" class="fc-poster loaded" loading="lazy"><div class="poster-top"><span class="type-chip">'+f.type.toUpperCase()+'</span><span class="size-chip">'+f.size+'</span><span class="source-pill '+sc+'"><span class="source-dot"></span>'+sc.toUpperCase()+'</span></div></div>';
+                        // ✅ FIX: onload से 'loaded' क्लास add होगी — smooth fade-in thumbnail
+                        posterHtml = '<div class="poster-box"><img src="'+f.tg_thumb+'" class="fc-poster" onload="this.classList.add(\'loaded\')" loading="lazy"><div class="poster-top"><span class="type-chip">'+f.type.toUpperCase()+'</span><span class="size-chip">'+f.size+'</span><span class="source-pill '+sc+'"><span class="source-dot"></span>'+sc.toUpperCase()+'</span></div></div>';
                     }} else {{
                         posterHtml = '<div class="fc-text-info"><span class="tc-type">'+f.type.toUpperCase()+'</span><span class="tc-size">'+f.size+'</span><span class="source-pill '+sc+'" style="margin-left:auto"><span class="source-dot"></span>'+sc.toUpperCase()+'</span></div>';
                     }}
@@ -418,13 +421,14 @@ async def api_actor_search_handler(req):
     actor = await actors.find_one({"_id": ObjectId(actor_id)})
     if not actor: return web.json_response({"results": []})
     
-    search_query = q_custom if q_custom else actor["name"]
+    # ✅ FIX 1: Custom query हो तो उसे use करो वरना actor name + tags सब मिलाकर search करो
     tags_list = actor.get("tags", [])
+    search_query = q_custom if q_custom else actor["name"]
     
     lim = 21
     
     all_m, next_offset = await get_actor_search_results(
-        search_query, tags_list, max_results=lim, offset=off, collection_type=col
+        search_query, tags_list if not q_custom else [], max_results=lim, offset=off, collection_type=col
     )
     
     results_list = []
@@ -442,7 +446,8 @@ async def api_actor_search_handler(req):
             "name": d.get("file_name", "Unknown File"),
             "size": get_size(d.get("file_size", 0)),
             "type": d.get("file_type", "document").upper(),
-            "source": source_col.capitalize(),
+            # ✅ FIX: source को lowercase भेजो ताकि CSS class (primary/cloud/archive) match हो
+            "source": source_col.lower(),
             "tg_thumb": tg_thumb,
             "watch": f"/setup_stream?file_id={fid}&mode=watch"
         })
@@ -488,16 +493,19 @@ async def api_actor_gallery_upload(req):
     role, _ = await get_auth(req)
     if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
     
+    actor_id = None  # ✅ FIX: पहले actor_id को None init करो ताकि except में भी use हो सके
     try:
         reader = await req.multipart()
-        actor_id, image_bytes = None, None
+        image_bytes = None
         while True:
             part = await reader.next()
             if part is None: break
             if part.name == 'actor_id': actor_id = (await part.read()).decode().strip()
             elif part.name == 'gallery_img': image_bytes = await part.read()
             
-        if not actor_id or not image_bytes: return web.HTTPFound('/actors?err=Assets reading packet failure')
+        if not actor_id or not image_bytes:
+            redirect_url = f'/actor/{actor_id}?err=Assets reading packet failure' if actor_id else '/actors?err=Assets reading packet failure'
+            return web.HTTPFound(redirect_url)
         
         with io.BytesIO(image_bytes) as img_buffer:
             img_buffer.name = f"gallery_{actor_id}_{int(time.time())}.jpg"
@@ -509,4 +517,6 @@ async def api_actor_gallery_upload(req):
         await actors.update_one({"_id": ObjectId(actor_id)}, {"$push": {"gallery": f"TG_ID:{tg_photo_id}"}})
         return web.HTTPFound(f'/actor/{actor_id}?msg=New portrait uploaded successfully to star gallery!')
     except Exception as e:
-        return web.HTTPFound(f'/actors?err=System core crash: {str(e)}')
+        # ✅ FIX: crash पर actor page पर वापस जाओ, /actors catalog पर नहीं
+        redirect_url = f'/actor/{actor_id}?err=Upload crash: {str(e)}' if actor_id else f'/actors?err=System core crash: {str(e)}'
+        return web.HTTPFound(redirect_url)
