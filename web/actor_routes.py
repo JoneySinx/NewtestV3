@@ -58,7 +58,6 @@ async def api_create_actor(req):
         if not name or not bio or not image_bytes:
             return web.HTTPFound('/admin/create_actor?err=All fields are required!')
 
-        # Telegram Node पर इमेज अपलोड (Zero-RAM बफ़र)
         with io.BytesIO(image_bytes) as img_buffer:
             img_buffer.name = f"{name.replace(' ', '_')}.jpg"
             msg = await temp.BOT.send_photo(chat_id=BIN_CHANNEL, photo=img_buffer)
@@ -100,7 +99,6 @@ async def get_actor_photo(req):
         file_data.close()
         del file_data
         
-        # 1 साल का ब्राउज़र कैशे कवच
         headers = {
             "Cache-Control": "public, max-age=31536000, immutable",
             "Content-Disposition": 'inline; filename="actor.jpg"'
@@ -109,7 +107,7 @@ async def get_actor_photo(req):
     except Exception:
         return web.Response(status=500)
     finally:
-        gc.collect() # फ़ोर्स रैम रिलीज़
+        gc.collect()
 
 # ─────────────────────────────────────────────────────────
 # 🌐 PUBLIC VIEW: ACTOR PROFILE + 3 TABS SYSTEM
@@ -131,7 +129,6 @@ async def actor_profile_display(req):
         query=actor_name, max_results=30, offset=0, collection_type="all", bypass_count=True
     )
     
-    # 🎬 VIDEO TAB: नेटफ्लिक्स ग्रिड जनरेशन
     grid_html = ""
     if not video_docs:
         grid_html = '<div style="color:var(--muted); padding:30px; text-align:center;">No files found matching this actor name.</div>'
@@ -157,8 +154,7 @@ async def actor_profile_display(req):
             '''
         grid_html += '</div>'
 
-    # 🎭 CSS और JS टैब इंजन (Zero Server Interaction)
-    # f-string पार्सिंग कॉन्फ्लिक्ट से बचने के लिए कर्ली ब्रेसेस को डबल {{}} कर दिया गया है
+    # ✅ फिक्स: स्टाइल और स्क्रिप्ट के अंदर मौजूद सभी { } को डबल {{ }} कर दिया गया है ताकि पाइथन पार्सर कोई एरर न दे।
     tab_engine_ui = f'''
     <style>
         .actor-tab-bar {{ display: flex; gap: 10px; border-bottom: 2px solid var(--border); margin-bottom: 25px; }}
@@ -207,20 +203,20 @@ async def actor_profile_display(req):
     </div>
 
     <script>
-        function switchActorTab(evt, tabId) {
+        function switchActorTab(evt, tabId) {{
             var panels = document.querySelectorAll('.actor-panel');
-            for (var i = 0; i < panels.length; i++) {
+            for (var i = 0; i < panels.length; i++) {{
                 panels[i].classList.remove('active');
-            }
+            }}
             
             var tabs = document.querySelectorAll('.actor-tab');
-            for (var j = 0; j < tabs.length; j++) {
+            for (var j = 0; j < tabs.length; j++) {{
                 tabs[j].classList.remove('active');
-            }
+            }}
             
             document.getElementById(tabId).classList.add('active');
             evt.currentTarget.classList.add('active');
-        }
+        }}
     </script>
     '''
     return build_page(f"{actor_name} - Profile", tab_engine_ui, "", "actors", role)
