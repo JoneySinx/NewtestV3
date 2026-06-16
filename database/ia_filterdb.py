@@ -101,8 +101,7 @@ async def db_count_documents():
         c_task = cloud.estimated_document_count()
         a_task = archive.estimated_document_count()
         
-        # ✅ SCREENSHOT FIX 4 & 5: थंबनेल काउंट को एकदम सटीक बनाने के लिए स्ट्रिक्ट स्ट्रिंग-टाइप क्वेरी
-        # यह खाली स्ट्रिंग्स ("") या कचरा वैल्यूज को पूरी तरह बाईपास करके केवल असली इमेज डेटा काउंट करेगा
+        # ✅ SCREENSHOT FIX 4 & 5: थंबनेल काउंट को एकदम सटीक बनाने के लिए सचमुच स्ट्रिंग-टाइप क्वेरी
         thumb_query = {
             "thumb_url": {
                 "$exists": True, 
@@ -157,7 +156,6 @@ async def save_file(media, collection_type="primary"):
         else:
             thumb_url = None
 
-        # रिडंडेंट 'file_id' फ़ील्ड को हटाकर क्लीन पेलोड मैपिंग
         update_set = {
             "file_ref":  media.file_id,
             "file_name": f_name,
@@ -171,8 +169,6 @@ async def save_file(media, collection_type="primary"):
         update_payload = {"$set": update_set}
         unset_payload = {}
 
-        # ✅ SCREENSHOT FIX 1 & 2: घोस्ट कैप्शन (Ghost Caption) डेटाबेस क्लीनअप सुरक्षा कवच
-        # यदि कैप्शन फ़िल्टर चालू है और कैप्शन मौजूद है, तो उसे अपडेट करें; अन्यथा डेटाबेस से उसे जड़ से मिटाएं ($unset)
         if USE_CAPTION_FILTER and caption:
             update_set["caption"] = caption
         else:
@@ -273,7 +269,6 @@ async def get_search_results(query, max_results, offset=0, lang=None, collection
     actual_src = collection_type
 
     if collection_type == "all":
-        # 🛑 सेफ़्टी अलर्ट: 'all' सर्च के दौरान एक्टर्स कलेक्शन को बाईपास करें क्योंकि हमें केवल फाइल्स चाहिए
         for src, col in [("primary", primary), ("cloud", cloud), ("archive", archive)]:
             docs, cnt = await _search(col, raw_query, regex, offset, max_results, lang, bypass_count=bypass_count)
             if docs:
@@ -371,3 +366,48 @@ def unpack_new_file_id(new_file_id: str):
     except Exception as e:
         logger.error(f"unpack_new_file_id error: {e}")
         return None
+
+# ─────────────────────────────────────────────────────────
+# 🎭 ACTOR TAGS MULTI-PIPELINE OR SEARCH ENGINE (100% ISOLATED)
+# ─────────────────────────────────────────────────────────
+async def get_actor_search_results(actor_name, tags_list, max_results, offset=0, collection_type="all"):
+    """नाम और सभी कस्टमाइज्ड टैग्स को मिलाकर एक मास्टर Regex पैटर्न पर सर्च करता है ताकि कोई अन्य कंपोनेंट प्रभावित न हो।"""
+    all_terms = [actor_name.strip()]
+    if tags_list and isinstance(tags_list, list):
+        for t in tags_list:
+            if t.strip():
+                all_terms.append(t.strip())
+                
+    escaped_terms = [re.escape(term) for term in all_terms]
+    combined_raw = r'(' + '|'.join(escaped_terms) + r')'
+    
+    try:
+        regex = re.compile(combined_raw, flags=re.IGNORECASE)
+    except Exception:
+        regex = re.compile(re.escape(actor_name), flags=re.IGNORECASE)
+        
+    if USE_CAPTION_FILTER:
+        reg_flt = {"$or": [{"file_name": regex}, {"caption": regex}]}
+    else:
+        reg_flt = {"file_name": regex}
+        
+    results = []
+    cols = [primary, cloud, archive] if collection_type == "all" else [COLLECTIONS.get(collection_type, primary)]
+    
+    for col in cols:
+        cursor = col.find(reg_flt, {"_id": 1, "file_name": 1, "file_size": 1, "file_type": 1, "file_ref": 1, "caption": 1, "thumb_url": 1}).sort('_id', -1)
+        cursor.skip(offset).limit(max_results)
+        docs = await cursor.to_list(length=max_results)
+        if docs:
+            for doc in docs:
+                doc["file_id"] = doc["_id"]
+                doc["source_col"] = col.name.lower() # थंबनेल इंजन सिंकिंग को आसान बनाने के लिए सोर्स ट्रैक रखें
+            results.extend(docs)
+            if len(results) >= max_results:
+                results = results[:max_results]
+                break
+
+    has_more = len(results) == max_results
+    next_offset = offset + max_results if has_more else ""
+    
+    return results, next_offset
