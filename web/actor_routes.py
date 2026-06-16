@@ -2,10 +2,11 @@ import io
 import gc
 import time
 import json
+import html
 from aiohttp import web
 from bson.objectid import ObjectId
 from utils import temp, get_size
-from info import BIN_CHANNEL
+from info import BIN_CHANNEL, MAX_WEB_RESULTS
 from database.ia_filterdb import actors, get_actor_search_results
 from web.web_assets import build_page, get_auth, form_wrapper
 
@@ -43,7 +44,7 @@ async def actors_directory_page(req):
                     <img src="/api/actor/photo?id={act_id}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" loading="lazy">
                 </div>
                 <div style="padding:12px; text-align:center;">
-                    <div style="font-size:14px; font-weight:700; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">{act.get('name')}</div>
+                    <div style="font-size:14px; font-weight:700; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">{html.escape(act.get('name', ''))}</div>
                 </div>
             </div>
             '''
@@ -186,13 +187,13 @@ async def actor_profile_display(req):
     
     tags_chips_html = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">'
     for tag in tags_list:
-        tags_chips_html += f'<span style="background:var(--bg3); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600;">#{tag}</span>'
+        tags_chips_html += f'<span style="background:var(--bg3); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600;">#{html.escape(tag)}</span>'
     tags_chips_html += '</div>'
 
     social_html = '<div style="display:flex; gap:12px; margin-top:12px; flex-wrap:wrap;">'
-    if social.get("instagram"): social_html += f'<a href="{social["instagram"]}" target="_blank" style="background:#ff007f; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📸 Instagram</a>'
-    if social.get("youtube"): social_html += f'<a href="{social["youtube"]}" target="_blank" style="background:#ff0000; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📺 YouTube</a>'
-    if social.get("twitter"): social_html += f'<a href="{social["twitter"]}" target="_blank" style="background:#1da1f2; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">🐦 Twitter / X</a>'
+    if social.get("instagram"): social_html += f'<a href="{html.escape(social["instagram"])}" target="_blank" style="background:#ff007f; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📸 Instagram</a>'
+    if social.get("youtube"): social_html += f'<a href="{html.escape(social["youtube"])}" target="_blank" style="background:#ff0000; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📺 YouTube</a>'
+    if social.get("twitter"): social_html += f'<a href="{html.escape(social["twitter"])}" target="_blank" style="background:#1da1f2; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">🐦 Twitter / X</a>'
     social_html += '</div>'
 
     gallery_grid_html = ""
@@ -217,9 +218,10 @@ async def actor_profile_display(req):
         gallery_grid_html += '</div>'
 
     admin_edit_btn = f'<button onclick="openActorEditModal()" style="background:var(--bg4); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; margin-top:10px; align-self:flex-start;">✏️ Edit Profile & Socials</button>' if role == 'admin' else ""
-    tags_json_payload = json.dumps(tags_list)
+    tags_json_payload = html.escape(json.dumps(tags_list))
+    safe_bio = html.escape(actor.get("bio", ""))
 
-    # ✅ सिंटैक्स फिक्स: यहाँ CSS और स्क्रिप्ट को बिना f-string के टकराव के बिल्कुल शुद्ध रूप से रेंडर किया गया है
+    # ✅ फिक्स: क्लॉड एआई के सिंटैक्स रूल्स और सीएसएस का टकराव पूरी तरह ठीक किया गया
     tab_engine_ui = f'''
     <style>
         .actor-tab-bar {{ display: flex; gap: 10px; border-bottom: 2px solid var(--border); margin-bottom: 25px; }}
@@ -241,7 +243,7 @@ async def actor_profile_display(req):
                 <img src="/api/actor/photo?id={actor_id}" style="width:100%; height:100%; object-fit:cover;">
             </div>
             <div style="flex:1; min-width:300px; display:flex; flex-direction:column; justify-content:center;">
-                <h1 style="font-size:32px; font-weight:900; color:var(--text); margin-bottom:2px;">{actor_name}</h1>
+                <h1 style="font-size:32px; font-weight:900; color:var(--text); margin-bottom:2px;">{html.escape(actor_name)}</h1>
                 {tags_chips_html}
                 {social_html}
                 {admin_edit_btn}
@@ -256,14 +258,14 @@ async def actor_profile_display(req):
 
         <div id="tab-info" class="actor-panel active">
             <div style="background:var(--card); border:1px solid var(--border); padding:25px; border-radius:8px; line-height:1.7; color:var(--text); font-size:15px; white-space:pre-line;">
-                {actor["bio"]}
+                {safe_bio}
             </div>
         </div>
 
         <div id="tab-video" class="actor-panel">
             <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; align-items:center;">
                 <div style="flex:1; min-width:200px; display:flex; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:0 12px; align-items:center;">
-                    <input type="text" id="actor_movie_q" value="{actor_name}" placeholder="Search inside actor movies..." style="width:100%; background:transparent; border:none; padding:10px 0; color:var(--text); outline:none; font-size:14px; font-weight:600;">
+                    <input type="text" id="actor_movie_q" value="{html.escape(actor_name)}" placeholder="Search inside actor movies..." style="width:100%; background:transparent; border:none; padding:10px 0; color:var(--text); outline:none; font-size:14px; font-weight:600;">
                 </div>
                 <select id="actor_col_sel" onchange="resetActorSearchPage()" style="background:var(--bg3); color:var(--text); border:1px solid var(--border); padding:10px 14px; border-radius:8px; font-weight:700; outline:none; cursor:pointer;">
                     <option value="all">📂 All Collections</option>
@@ -292,7 +294,7 @@ async def actor_profile_display(req):
         </div>
     </div>
 
-    <input type="hidden" id="actor_master_tags_payload" value='{tags_json_payload}'>
+    <input type="hidden" id="actor_master_tags_payload" value="{tags_json_payload}">
 
     <div class="edit-modal" id="actorEditModal" onclick="if(event.target===this)closeActorEditModal()">
         <div class="em-card" style="max-width:550px; background: var(--card); border:1px solid var(--border); padding:25px; border-radius:12px;">
@@ -302,24 +304,24 @@ async def actor_profile_display(req):
                 <input type="hidden" name="actor_id" value="{actor_id}">
                 
                 <div class="scard-label">Actor Full Name</div>
-                <input type="text" name="name" value="{actor_name}" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;" required>
+                <input type="text" name="name" value="{html.escape(actor_name)}" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;" required>
                 
                 <div class="scard-label">Biography Details</div>
-                <textarea name="bio" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); min-height:120px; font-family:inherit; padding:10px; line-height:1.5; color:var(--text); margin-bottom:15px; border-radius:6px;" required>{actor["bio"]}</textarea>
+                <textarea name="bio" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); min-height:120px; font-family:inherit; padding:10px; line-height:1.5; color:var(--text); margin-bottom:15px; border-radius:6px;" required>{safe_bio}</textarea>
                 
                 <div class="scard-label">Search Tags (Comma Separated)</div>
-                <input type="text" name="tags" value="{', '.join(tags_list)}" placeholder="e.g. SRK, Shahrukh, King Khan" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
+                <input type="text" name="tags" value="{html.escape(', '.join(tags_list))}" placeholder="e.g. SRK, Shahrukh, King Khan" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
 
                 <div class="em-title" style="font-size:14px; margin-top:15px; margin-bottom:10px; color:var(--text);">🌐 Social Media Channels Matrix</div>
                 
                 <div class="scard-label">Instagram Link</div>
-                <input type="url" name="insta" value="{social.get('instagram','')}" placeholder="https://instagram.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
+                <input type="url" name="insta" value="{html.escape(social.get('instagram',''))}" placeholder="https://instagram.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
                 
                 <div class="scard-label">YouTube Channel Link</div>
-                <input type="url" name="yt" value="{social.get('youtube','')}" placeholder="https://youtube.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
+                <input type="url" name="yt" value="{html.escape(social.get('youtube',''))}" placeholder="https://youtube.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
                 
                 <div class="scard-label">Twitter / X Profile Link</div>
-                <input type="url" name="twitter" value="{social.get('twitter','')}" placeholder="https://x.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:20px; border-radius:6px;">
+                <input type="url" name="twitter" value="{html.escape(social.get('twitter',''))}" placeholder="https://x.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:20px; border-radius:6px;">
                 
                 <button class="em-save-btn" type="submit" style="width:100%; background:var(--accent); color:#fff; border:none; padding:14px; font-weight:700; border-radius:6px; cursor:pointer; font-size:15px;">Save Changes & Sync Grid</button>
             </form>
@@ -347,6 +349,7 @@ async def actor_profile_display(req):
         function closeActorEditModal() {{ document.getElementById('actorEditModal').classList.remove('open'); }}
         function resetActorSearchPage() {{ actCurPage = 1; actOffset = 0; }}
 
+        // ✅ फिक्स: AJAX कॉल अब सही एंडपॉइंट '/api/actor/search' पर टैग्स और थंबनेल बैजेस के साथ फ़िल्टर लोड करेगा
         async function triggerActorSearchAjax() {{
             var q = document.getElementById('actor_movie_q').value.trim();
             var col = document.getElementById('actor_col_sel').value;
@@ -374,7 +377,7 @@ async def actor_profile_display(req):
                     }} else {{
                         posterHtml = '<div class="fc-text-info"><span class="tc-type">'+f.type.toUpperCase()+'</span><span class="tc-size">'+f.size+'</span><span class="source-pill '+sc+'" style="margin-left:auto"><span class="source-dot"></span>'+sc.toUpperCase()+'</span></div>';
                     }}
-                    h += '<div class="file-card">' + posterHtml + '<div class="fc-body"><div class="fc-name" onclick="window.open(\\''+f.watch+'\\',\\'_blank\\')">'+f.name+'</div></div></div>';
+                    h += '<div class="file-card">' + posterHtml + '<div class="fc-body"><div class="fc-name" onclick="window.open(\''+f.watch+'\',\'_blank\')">'+f.name+'</div></div></div>';
                 }});
                 grid.innerHTML = h;
                 actNextOffset = d.next_offset;
