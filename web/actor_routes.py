@@ -214,22 +214,32 @@ async def actor_profile_display(req):
     else:
         gallery_grid_html += '<div class="gallery-grid">'
         for i in range(len(gallery_list)):
-            gallery_grid_html += f'<img src="/api/actor/photo?id={actor_id}&gallery_idx={i}" class="gallery-item" loading="lazy">'
+            # ✅ गैलरी इमेज डिलीट और फुल स्क्रीन लाइटबॉक्स ट्रिगर सपोर्ट
+            del_btn = f'<button class="gallery-del-btn" onclick="deleteGalleryImage(\'{actor_id}\', {i}, event)">🗑️ Delete</button>' if role == 'admin' else ""
+            gallery_grid_html += f'''
+            <div class="gallery-item-wrap" onclick="openLightbox('/api/actor/photo?id={actor_id}&gallery_idx={i}')">
+                <img src="/api/actor/photo?id={actor_id}&gallery_idx={i}" class="gallery-item" loading="lazy">
+                {del_btn}
+            </div>
+            '''
         gallery_grid_html += '</div>'
 
     admin_actions_html = ""
     if role == 'admin':
         admin_actions_html = f'''
-        <div style="display:flex; gap:10px; margin-top:10px;">
+        <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
             <button onclick="openActorEditModal()" style="background:var(--bg4); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">✏️ Edit Profile & Socials</button>
             <button onclick="deleteActorProfile('{actor_id}')" style="background:rgba(160,8,8,.78); border:1px solid rgba(229,9,20,.45); color:#fff; padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">🗑️ Delete Profile</button>
+            <label style="background:var(--bg3); border:1px dashed var(--border); color:var(--text); padding:7px 14px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-block;">
+                📸 Change Avatar
+                <input type="file" id="avatarUpdateInput" accept="image/*" style="display:none;" onchange="updateActorAvatar('{actor_id}')">
+            </label>
         </div>
         '''
         
     tags_json_payload = html.escape(json.dumps(tags_list))
     safe_bio = html.escape(actor.get("bio", ""))
 
-    # ✅ 100% DASHBOARD GLASS UI INTEGRATION WITH ON-CLICK LIVE FILTER CAPABILITY
     tab_engine_ui = f'''
     <style>
         .actor-tab-bar {{ display: flex; gap: 10px; border-bottom: 2px solid var(--border); margin-bottom: 25px; }}
@@ -238,11 +248,25 @@ async def actor_profile_display(req):
         .actor-tab.active::after {{ content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: var(--accent); }}
         .actor-panel {{ display: none; }}
         .actor-panel.active {{ display: block !important; }}
-        .gallery-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }}
-        .gallery-item {{ width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.2s; }}
-        .gallery-item:hover {{ transform: scale(1.03); }}
         
-        /* ── डैशबोर्ड की प्रीमियम सीएसएस को री-सिंक किया गया ── */
+        /* ── गैलरी नोड विथ डिलीट ओवरले ── */
+        .gallery-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; }}
+        @media(min-width:600px) {{ .gallery-grid {{ grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }} }}
+        .gallery-item-wrap {{ position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); aspect-ratio: 1; cursor: pointer; }}
+        .gallery-item {{ width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }}
+        .gallery-item-wrap:hover .gallery-item {{ transform: scale(1.04); }}
+        .gallery-del-btn {{ position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); background: rgba(160,8,8,.85); border: 1px solid var(--accent); color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; z-index: 5; opacity: 0; transition: opacity 0.15s; }}
+        .gallery-item_wrap:hover .gallery-del-btn {{ opacity: 1; }}
+        
+        /* ── फुलस्क्रीन लाइटबॉक्स ── */
+        .lightbox {{ position: fixed; inset: 0; background: rgba(0,0,0,.92); backdrop-filter: blur(15px); z-index: 99999; display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; }}
+        .lightbox.open {{ display: flex; opacity: 1; }}
+        .lightbox-img {{ max-width: 92%; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgba(0,0,0,.8); transform: scale(.95); transition: transform .2s cubic-bezier(.4,0,.2,1); }}
+        .lightbox.open .lightbox-img {{ transform: scale(1); }}
+        .lightbox-close {{ position: absolute; top: 20px; right: 25px; background: none; border: none; color: #fff; font-size: 32px; cursor: pointer; opacity: .7; }}
+        .lightbox-close:hover {{ opacity: 1; }}
+
+        /* ── डैशबोर्ड की प्रीमियम रिस्पॉन्सिव ग्रिड ── */
         .search-zone-actor {{ padding: 16px 0 0 0; }}
         .search-row1-actor {{ display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }}
         .search-row2-actor {{ display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 16px; }}
@@ -257,7 +281,6 @@ async def actor_profile_display(req):
         .search-btn-actor {{ flex-shrink: 0; background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 20px; height: 38px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform .15s, background .15s; }}
         .search-btn-actor:hover {{ background: var(--accent-hover); transform: scale(1.03); }}
         
-        /* ── कस्टमाइज़्ड प्रीमियम ड्रॉपडाउन लुक ── */
         .cdd-wrap-actor {{ flex: 0 1 auto; min-width: 0; position: relative; user-select: none; }}
         .cdd-btn-actor {{ width: auto; background: var(--bg3); color: var(--text); border: 1.5px solid var(--border); border-radius: 999px; padding: 8px 28px 8px 14px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: border-color .15s; }}
         .cdd-btn-actor:hover, .cdd-btn-actor.open {{ border-color: var(--accent); }}
@@ -294,16 +317,12 @@ async def actor_profile_display(req):
         .fc-name {{ color: var(--text); font-size: 12.5px; font-weight: 600; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; cursor: pointer; }}
         .fc-name:hover {{ color: var(--accent); text-decoration: underline; }}
         .res-grid.mode-none .poster-box {{ display: none; }}
-        .fc-text-info {{ display: flex; align-items: center; gap: 6px; padding: 10px 11px 0; flex-wrap: wrap; margin-bottom: 4px; }}
-        .tc-type {{ background: var(--bg4); color: var(--muted); border-radius: 5px; padding: 2px 7px; font-size: 9px; font-weight: 800; border: 1px solid var(--border); }}
-        .tc-size {{ color: var(--muted); font-size: 11px; }}
         
         .pagination {{ display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 20px; }}
         .pg-btn {{ background: var(--bg4); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 18px; font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s; }}
         .pg-btn:disabled {{ opacity: .45; cursor: not-allowed; }}
         .pg-btn:not(:disabled):hover {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
         .pg-info {{ color: var(--muted); font-size: 12px; font-weight: 600; }}
-        
         .spin-wrap {{ display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 60px 20px; color: var(--muted); grid-column: 1/-1; }}
         .spinner {{ width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }}
         @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
@@ -315,7 +334,7 @@ async def actor_profile_display(req):
         
         <div style="display:flex; gap:25px; background:var(--card); border:1px solid var(--border); padding:25px; border-radius:12px; margin-bottom:35px; flex-wrap:wrap;">
             <div style="width:160px; height:220px; background:var(--bg3); border-radius:8px; overflow:hidden; border:1px solid var(--border); flex-shrink:0;">
-                <img src="/api/actor/photo?id={actor_id}" style="width:100%; height:100%; object-fit:cover;">
+                <img id="actorMasterAvatarImage" src="/api/actor/photo?id={actor_id}" style="width:100%; height:100%; object-fit:cover;">
             </div>
             <div style="flex:1; min-width:300px; display:flex; flex-direction:column; justify-content:center;">
                 <h1 style="font-size:32px; font-weight:900; color:var(--text); margin-bottom:2px;">{html.escape(actor_name)}</h1>
@@ -386,6 +405,11 @@ async def actor_profile_display(req):
         </div>
     </div>
 
+    <div id="actorLightboxModal" class="lightbox" onclick="closeLightbox()">
+        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+        <img id="lightboxTargetImg" class="lightbox-img" src="" onclick="event.stopPropagation()">
+    </div>
+
     <input type="hidden" id="actor_master_tags_payload" value="{tags_json_payload}">
 
     <div class="edit-modal" id="actorEditModal" onclick="if(event.target===this)closeActorEditModal()">
@@ -426,7 +450,6 @@ async def actor_profile_display(req):
         var actorDefaultName = "{html.escape(actor_name)}";
         var actCol = "all", actMode = "tg";
 
-        /* ── कस्टमाइज़्ड ड्रॉपडाउन जावास्क्रिप्ट इंजन ── */
         function closeActorCdds(){{
             document.getElementById('cddColMenuActor').style.display='none';
             document.getElementById('cddColBtnActor').classList.remove('open');
@@ -472,6 +495,19 @@ async def actor_profile_display(req):
         }}
         document.addEventListener('click', function(){{ closeActorCdds(); }});
 
+        /* ── लाइटबॉक्स इंजन ── */
+        function openLightbox(src) {{
+            var lb = document.getElementById('actorLightboxModal');
+            document.getElementById('lightboxTargetImg').src = src;
+            lb.style.display = 'flex';
+            setTimeout(function(){{ lb.classList.add('open'); }}, 10);
+        }}
+        function closeLightbox() {{
+            var lb = document.getElementById('actorLightboxModal');
+            lb.classList.remove('open');
+            setTimeout(function(){{ lb.style.display = 'none'; }}, 200);
+        }}
+
         function switchActorTab(evt, tabId) {{
             var panels = document.querySelectorAll('.actor-panel');
             for (var i = 0; i < panels.length; i++) {{ panels[i].classList.remove('active'); }}
@@ -489,10 +525,8 @@ async def actor_profile_display(req):
         function closeActorEditModal() {{ document.getElementById('actorEditModal').classList.remove('open'); }}
         function resetActorSearchPage() {{ actCurPage = 1; actOffset = 0; }}
 
-        // ✅ कोर फिक्स: टाइप करने पर भी यह एक्टर आईडी को बैकएंड पर रखेगा जिससे टैग्स कभी मिस नहीं होंगे
         async function triggerActorSearchAjax() {{
             var typedQ = document.getElementById('actor_movie_q').value.trim();
-            // अगर इनपुट खाली है तो एक्टर का डिफॉल्ट नाम यूज़ करो, वरना टाइप किया हुआ वर्ड
             var q = typedQ || actorDefaultName; 
             var grid = document.getElementById('actor_video_results');
             
@@ -546,6 +580,46 @@ async def actor_profile_display(req):
             }}
         }}
 
+        // ✅ लाइव फोटो रीलोडर: बिना पेज रिफ्रेश किए ब्राउज़र में अवतार तुरंत बदलेगा
+        async function updateActorAvatar(actorId) {{
+            var fileInput = document.getElementById('avatarUpdateInput');
+            if(!fileInput.files || !fileInput.files[0]) return;
+            
+            var formData = new FormData();
+            formData.append('actor_id', actorId);
+            formData.append('photo', fileInput.files[0]);
+            
+            try {{
+                var r = await fetch('/api/actor/update_avatar', {{ method: 'POST', body: formData }});
+                var d = await r.json();
+                if(d.success) {{
+                    var timestamp = new Date().getTime();
+                    document.getElementById('actorMasterAvatarImage').src = '/api/actor/photo?id=' + actorId + '&t=' + timestamp;
+                    alert("Profile photo updated successfully!");
+                }} else {{
+                    alert(d.error || "Upload failed!");
+                }}
+            }} catch(e) {{ alert("Network update error!"); }}
+        }}
+
+        // 🗑️ गैलरी इमेज डिलीट इंजन
+        async function deleteGalleryImage(actorId, idx, e) {{
+            if(e) {{ e.stopPropagation(); }}
+            if(!confirm("Delete this photo from gallery permanently?")) return;
+            try {{
+                var r = await fetch('/api/actor/gallery_delete', {{
+                    method: 'POST',
+                    body: JSON.stringify({{ actor_id: actorId, index: idx }}),
+                    headers: {{ 'Content-Type': 'application/json' }}
+                }});
+                var d = await r.json();
+                if(d.success) {{
+                    alert("Image removed from gallery!");
+                    window.location.reload();
+                }} else {{ alert(d.error || "Delete failed!"); }}
+            }} catch(e) {{ alert("Network deletion error!"); }}
+        }}
+
         async function deleteActorProfile(id) {{
             if (!confirm("Are you sure you want to permanently delete this actor profile?")) return;
             try {{
@@ -554,12 +628,8 @@ async def actor_profile_display(req):
                 if (d.success) {{
                     alert("Profile deleted successfully!");
                     window.location.href = '/actors';
-                }} else {{
-                    alert(d.error || "Deletion failed!");
-                }}
-            }} catch(e) {{
-                alert("Network communication error!");
-            }}
+                }} else {{ alert(d.error || "Deletion failed!"); }}
+            }} catch(e) {{ alert("Network communication error!"); }}
         }}
 
         function actorPageNext() {{ if(actNextOffset) {{ actCurPage++; actOffset = actNextOffset; triggerActorSearchAjax(); window.scrollTo(0,350); }} }}
@@ -654,6 +724,38 @@ async def api_actor_update_profile(req):
     return web.HTTPFound(f'/actor/{actor_id}?msg=Profile and Social Networks synced successfully!')
 
 # ─────────────────────────────────────────────────────────
+# 🖼️ ADMIN API: LIVE UPDATE ACTOR AVATAR
+# ─────────────────────────────────────────────────────────
+@actor_routes.post('/api/actor/update_avatar')
+async def api_actor_update_avatar(req):
+    role, _ = await get_auth(req)
+    if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
+    
+    try:
+        data = await req.post()
+        actor_id = data.get("actor_id")
+        photo_part = data.get("photo")
+        
+        if not actor_id or not photo_part:
+            return web.json_response({"success": False, "error": "Invalid assets data"})
+            
+        image_bytes = photo_part.file.read()
+        
+        with io.BytesIO(image_bytes) as img_buffer:
+            img_buffer.name = f"avatar_{actor_id}_{int(time.time())}.jpg"
+            msg = await temp.BOT.send_photo(chat_id=BIN_CHANNEL, photo=img_buffer)
+            
+        if not msg or not msg.photo:
+            return web.json_response({"success": False, "error": "Telegram upload failed"})
+            
+        tg_photo_id = msg.photo.sizes[-1].file_id if hasattr(msg.photo, "sizes") and msg.photo.sizes else msg.photo.file_id
+        
+        await actors.update_one({"_id": ObjectId(actor_id)}, {"$set": {"photo_url": f"TG_ID:{tg_photo_id}"}})
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)})
+
+# ─────────────────────────────────────────────────────────
 # 🖼️ ADMIN API: UPLOAD NATIVE IMAGE TO GALLERY
 # ─────────────────────────────────────────────────────────
 @actor_routes.post('/api/actor/gallery_upload')
@@ -683,6 +785,32 @@ async def api_actor_gallery_upload(req):
         return web.HTTPFound(f'/actor/{actor_id}?msg=New portrait uploaded successfully to star gallery!')
     except Exception as e:
         return web.HTTPFound(f'/actors?err=System core crash: {str(e)}')
+
+# ─────────────────────────────────────────────────────────
+# 🗑️ ADMIN API: DELETE SINGLE GALLERY IMAGE FROM ARRAY
+# ─────────────────────────────────────────────────────────
+@actor_routes.post('/api/actor/gallery_delete')
+async def api_actor_gallery_delete(req):
+    role, _ = await get_auth(req)
+    if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
+    
+    try:
+        body = await req.json()
+        actor_id = body.get("actor_id")
+        idx = body.get("index")
+        
+        actor = await actors.find_one({"_id": ObjectId(actor_id)})
+        if not actor or "gallery" not in actor:
+            return web.json_response({"success": False, "error": "Actor not found"})
+            
+        gallery = actor["gallery"]
+        if 0 <= idx < len(gallery):
+            del gallery[idx]
+            await actors.update_one({"_id": ObjectId(actor_id)}, {"$set": {"gallery": gallery}})
+            return web.json_response({"success": True})
+        return web.json_response({"success": False, "error": "Index out of bounds"})
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)})
 
 # ─────────────────────────────────────────────────────────
 # 🗑️ ADMIN API: DELETE ACTOR PROFILE COMPLETELY
