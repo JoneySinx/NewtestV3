@@ -7,7 +7,7 @@ from aiohttp import web
 from bson.objectid import ObjectId
 from utils import temp, get_size
 from info import BIN_CHANNEL, MAX_WEB_RESULTS
-from database.ia_filterdb import actors, get_actor_search_results, delete_actor_profile, delete_gallery_image_by_index
+from database.ia_filterdb import actors, get_actor_search_results
 from web.web_assets import build_page, get_auth, form_wrapper
 
 actor_routes = web.RouteTableDef()
@@ -38,11 +38,10 @@ async def actors_directory_page(req):
         actors_grid_html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:20px;">'
         for act in all_actors:
             act_id = str(act["_id"])
-            v_salt = int(act.get('created_at', time.time()))
             actors_grid_html += f'''
             <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; transition:0.2s; cursor:pointer;" onclick="window.location.href='/actor/{act_id}'">
                 <div style="position:relative; padding-top:135%; background:var(--bg3); overflow:hidden;">
-                    <img src="/api/actor/photo?id={act_id}&v={v_salt}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" loading="lazy">
+                    <img src="/api/actor/photo?id={act_id}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" loading="lazy">
                 </div>
                 <div style="padding:12px; text-align:center;">
                     <div style="font-size:14px; font-weight:700; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">{html.escape(act.get('name', ''))}</div>
@@ -124,7 +123,7 @@ async def api_create_actor(req):
             "bio": bio,
             "tags": tags_list,
             "photo_url": f"TG_ID:{tg_photo_id}",
-            "social_links": {"instagram": "", "youtube": "", "twitter": "", "other": ""},
+            "social_links": {"instagram": "", "youtube": "", "twitter": ""},
             "gallery": [],
             "created_at": time.time()
         }
@@ -162,12 +161,7 @@ async def get_actor_photo(req):
         file_data.close()
         del file_data
         
-        headers = {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-            "Content-Disposition": 'inline; filename="photo.jpg"'
-        }
+        headers = {"Cache-Control": "public, max-age=31536000, immutable", "Content-Disposition": 'inline; filename="photo.jpg"'}
         return web.Response(body=body_bytes, content_type="image/jpeg", headers=headers)
     except Exception: return web.Response(status=500)
     finally: gc.collect()
@@ -188,7 +182,7 @@ async def actor_profile_display(req):
         
     actor_name = actor["name"]
     tags_list = actor.get("tags", [])
-    social = actor.get("social_links", {"instagram": "", "youtube": "", "twitter": "", "other": ""})
+    social = actor.get("social_links", {"instagram": "", "youtube": "", "twitter": ""})
     gallery_list = actor.get("gallery", [])
     
     tags_chips_html = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">'
@@ -200,18 +194,17 @@ async def actor_profile_display(req):
     if social.get("instagram"): social_html += f'<a href="{html.escape(social["instagram"])}" target="_blank" style="background:#ff007f; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📸 Instagram</a>'
     if social.get("youtube"): social_html += f'<a href="{html.escape(social["youtube"])}" target="_blank" style="background:#ff0000; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">📺 YouTube</a>'
     if social.get("twitter"): social_html += f'<a href="{html.escape(social["twitter"])}" target="_blank" style="background:#1da1f2; color:#fff; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">🐦 Twitter / X</a>'
-    if social.get("other"): social_html += f'<a href="{html.escape(social["other"])}" target="_blank" style="background:var(--bg4); color:#fff; border:1px solid var(--border); padding:6px 14px; border-radius:6px; text-decoration:none; font-size:12px; font-weight:700;">🌐 Other Link</a>'
     social_html += '</div>'
 
     gallery_grid_html = ""
     if role == 'admin':
         gallery_grid_html += f'''
         <div style="background:var(--card); border:1px dashed var(--border); padding:20px; border-radius:8px; text-align:center; margin-bottom:20px;">
-            <form id="galleryForm" action="/api/actor/gallery_upload" method="post" enctype="multipart/form-data" style="margin:0;">
+            <form action="/api/actor/gallery_upload" method="post" enctype="multipart/form-data" style="margin:0;">
                 <input type="hidden" name="actor_id" value="{actor_id}">
                 <label style="background:var(--accent); color:#fff; padding:10px 20px; border-radius:6px; font-weight:700; cursor:pointer; font-size:13px; display:inline-block;">
-                    📂 Add Multiple Images to Gallery
-                    <input type="file" name="gallery_img" accept="image/*" multiple style="display:none;" onchange="submitGalleryForm()">
+                    📂 Add Image to Gallery
+                    <input type="file" name="gallery_img" accept="image/*" style="display:none;" onchange="this.form.submit()">
                 </label>
             </form>
         </div>
@@ -221,28 +214,22 @@ async def actor_profile_display(req):
     else:
         gallery_grid_html += '<div class="gallery-grid">'
         for i in range(len(gallery_list)):
-            admin_img_actions = f'<button class="gal-del-btn" onclick="deleteGalleryImg(\'{actor_id}\', {i})">&#128465;</button>' if role == 'admin' else ""
-            gallery_grid_html += f'''
-            <div class="gallery-item-wrapper">
-                <img src="/api/actor/photo?id={actor_id}&gallery_idx={i}" class="gallery-item" loading="lazy">
-                {admin_img_actions}
-            </div>
-            '''
+            gallery_grid_html += f'<img src="/api/actor/photo?id={actor_id}&gallery_idx={i}" class="gallery-item" loading="lazy">'
         gallery_grid_html += '</div>'
 
-    admin_edit_btn = ""
+    admin_actions_html = ""
     if role == 'admin':
-        admin_edit_btn = f'''
-        <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+        admin_actions_html = f'''
+        <div style="display:flex; gap:10px; margin-top:10px;">
             <button onclick="openActorEditModal()" style="background:var(--bg4); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">✏️ Edit Profile & Socials</button>
-            <button onclick="deleteActorProfileMaster('{actor_id}')" style="background:rgba(160,8,8,.78); border:1px solid rgba(229,9,20,.45); color:#fff; padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">🗑️ Delete Profile</button>
+            <button onclick="deleteActorProfile('{actor_id}')" style="background:rgba(160,8,8,.78); border:1px solid rgba(229,9,20,.45); color:#fff; padding:8px 16px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">🗑️ Delete Profile</button>
         </div>
         '''
-    
+        
     tags_json_payload = html.escape(json.dumps(tags_list))
     safe_bio = html.escape(actor.get("bio", ""))
-    cache_salt = int(time.time())
 
+    # ✅ 100% DASHBOARD MATCH STYLES: थंबनेल के ऊपर कड़क बैजेस का लुक और बटन्स का सफ़ाया
     tab_engine_ui = f'''
     <style>
         .actor-tab-bar {{ display: flex; gap: 10px; border-bottom: 2px solid var(--border); margin-bottom: 25px; }}
@@ -251,64 +238,76 @@ async def actor_profile_display(req):
         .actor-tab.active::after {{ content: ''; position: absolute; bottom: -2px; left: 0; right: 0; height: 2px; background: var(--accent); }}
         .actor-panel {{ display: none; }}
         .actor-panel.active {{ display: block !important; }}
-        
-        .actor-hero-box {{ display:flex; gap:25px; background:var(--card); border:1px solid var(--border); padding:25px; border-radius:12px; margin-bottom:35px; flex-wrap:wrap; }}
-        .profile-img-wrap {{ width:240px; height:240px; background:var(--bg3); border-radius:12px; overflow:hidden; border:1px solid var(--border); flex-shrink:0; position:relative; }}
-        .profile-img-wrap img {{ width:100%; height:100%; object-fit:cover; }}
-        @media(max-width: 600px) {{ .profile-img-wrap {{ width:100%; height:300px; }} }}
-
         .gallery-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }}
-        .gallery-item-wrapper {{ position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }}
-        .gallery-item {{ width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }}
-        .gallery-item-wrapper:hover .gallery-item {{ transform: scale(1.03); }}
+        .gallery-item {{ width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.2s; }}
+        .gallery-item:hover {{ transform: scale(1.03); }}
         
-        .gal-del-btn {{ position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); color: #fff; width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; z-index: 5; }}
-        .gal-del-btn:hover {{ background: #e50914; border-color: #e50914; }}
-
-        .edit-modal {{ position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 200; display: none; align-items: center; justify-content: center; overflow-y: auto; padding: 20px 10px; }}
-        .edit-modal.open {{ display: flex !important; }}
-        .em-card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 480px; box-shadow: 0 10px 30px rgba(0,0,0,.5); position: relative; margin: auto; }}
+        /* ── मुख्य डैशबोर्ड से सिंक की गई कड़क कार्ड्स सीएसएस पाइपलाइन ── */
+        .search-zone-actor {{ display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }}
+        @media(min-width:768px){{ .search-zone-actor {{ flex-direction: row; align-items: center; }} }}
+        .search-wrap-actor {{ flex: 1; min-width: 0; display: flex; align-items: center; background: var(--bg3); border: 1.5px solid var(--border); border-radius: 12px; padding: 0 18px; overflow: hidden; min-height: 38px; }}
+        .search-input-actor {{ width: 100%; background: transparent; border: none; outline: none; color: var(--text); font-size: 14px; font-weight: 600; padding: 6px 0; font-family: inherit; }}
+        .search-btn-actor {{ background: var(--accent); color: #fff; border: none; border-radius: 12px; padding: 0 24px; height: 38px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: transform .15s; }}
+        .search-btn-actor:hover {{ background: var(--accent-hover); transform: scale(1.03); }}
+        .sel-actor {{ background: var(--bg3); color: var(--text); border: 1.5px solid var(--border); padding: 0 14px; height: 38px; border-radius: 999px; font-size: 11px; font-weight: 700; outline: none; cursor: pointer; font-family: inherit; }}
+        .sel-actor:hover {{ border-color: var(--accent); }}
         
-        .upload-overlay {{ position: fixed; inset:0; background: rgba(0,0,0,0.85); z-index: 9999; display: none; flex-direction: column; align-items: center; justify-content: center; color: #fff; }}
-        .upload-overlay.show {{ display: flex !important; }}
-        .progress-box {{ width: 80%; max-width: 300px; height: 6px; background: var(--bg4); border-radius: 3px; overflow: hidden; margin-top: 15px; }}
-        .progress-bar {{ width: 0%; height: 100%; background: var(--accent); transition: width 0.4s ease; }}
-
-        /* 🛠️ UI UPGRADE: गियर आइकन ताकि क्लिक करने पर एडमिन मेनू और प्ले लिंक आपस में न टकराएं */
-        .card-gear-trigger {{ position:absolute; top:8px; right:8px; background:rgba(0,0,0,0.75); border:1px solid rgba(255,255,255,0.15); color:#fff; width:30px; height:30px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; z-index:10; transition:0.2s; }}
-        .card-gear-trigger:hover {{ background:var(--accent); }}
-        .poster-admin {{ position:absolute; bottom:0; left:0; right:0; display:flex; gap:4px; padding:6px; background:rgba(0,0,0,0.85); transform:translateY(100%); transition:transform 0.2s ease; z-index:11; }}
-        .gallery-item-wrapper.admin-active .poster-admin, .file-card.admin-active .poster-admin {{ transform:translateY(0); }}
-        .btn-edit-inline, .btn-del-inline {{ flex:1; padding:6px 0; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer; border:none; color:#fff; }}
-        .btn-edit-inline {{ background:var(--bg4); border:1px solid var(--border); }}
-        .btn-del-inline {{ background:rgba(160,8,8,0.85); }}
+        .res-grid {{ display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 24px; }}
+        @media(min-width:600px){{ .res-grid {{ grid-template-columns: repeat(3, 1fr); gap: 14px; }} }}
+        .file-card {{ background: var(--card); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); transition: transform .22s cubic-bezier(.4,0,.2,1),box-shadow .22s,border-color .22s; cursor: pointer; }}
+        .file-card:hover {{ transform: translateY(-4px); border-color: rgba(229,9,20,.4); box-shadow: 0 14px 36px rgba(0,0,0,.6); }}
+        .poster-box {{ position: relative; padding-top: 56.25%; background: var(--bg3); overflow: hidden; }}
+        .fc-poster {{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.25s ease-in-out; }}
+        .fc-poster.loaded {{ opacity: 1; }}
+        
+        .poster-top {{ position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 5px; padding: 8px; z-index: 3; }}
+        .type-chip {{ background: rgba(0,0,0,.72); backdrop-filter: blur(8px); color: #fff; border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 800; border: 1px solid rgba(255,255,255,.14); line-height: 1.4; }}
+        .size-chip {{ background: rgba(0,0,0,.60); backdrop-filter: blur(8px); color: #e0e0e0; border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 600; border: 1px solid rgba(255,255,255,.08); line-height: 1.4; }}
+        .source-pill {{ margin-left: auto; border-radius: 20px; padding: 3px 8px; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; backdrop-filter: blur(8px); }}
+        .source-pill.primary {{ background: #14532d; color: #4ade80; border: 1px solid #22c55e; }}
+        .source-pill.cloud {{ background: #1e3a5f; color: #93c5fd; border: 1px solid #60a5fa; }}
+        .source-pill.archive {{ background: #7c2d12; color: #fdba74; border: 1px solid #fb923c; }}
+        .source-dot {{ width: 5px; height: 5px; border-radius: 50%; background: currentColor; }}
+        
+        .fc-body {{ padding: 10px 11px 12px; }}
+        .fc-name {{ color: var(--text); font-size: 12.5px; font-weight: 600; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; cursor: pointer; }}
+        .fc-name:hover {{ color: var(--accent); text-decoration: underline; }}
+        .res-grid.mode-none .poster-box {{ display: none; }}
+        .fc-text-info {{ display: flex; align-items: center; gap: 6px; padding: 10px 11px 0; flex-wrap: wrap; margin-bottom: 4px; }}
+        .tc-type {{ background: var(--bg4); color: var(--muted); border-radius: 5px; padding: 2px 7px; font-size: 9px; font-weight: 800; border: 1px solid var(--border); }}
+        .tc-size {{ color: var(--muted); font-size: 11px; }}
+        
+        .pagination {{ display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 20px; }}
+        .pg-btn {{ background: var(--bg4); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 18px; font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s; }}
+        .pg-btn:disabled {{ opacity: .45; cursor: not-allowed; }}
+        .pg-btn:not(:disabled):hover {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
+        .pg-info {{ color: var(--muted); font-size: 12px; font-weight: 600; }}
+        
+        .spin-wrap {{ display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 60px 20px; color: var(--muted); grid-column: 1/-1; }}
+        .spinner {{ width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+        .empty {{ text-align: center; padding: 60px 20px; color: var(--muted); grid-column: 1/-1; }}
     </style>
-
-    <div id="uploadNotificationOverlay" class="upload-overlay">
-        <div class="spinner" style="width:48px; height:48px; border:4px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite;"></div>
-        <div style="margin-top: 20px; font-weight: 700; font-size: 16px; letter-spacing: 0.5px;" id="uploadOverlayText">वेट करें, आपका फोटो अपलोड हो रहा है...</div>
-        <div class="progress-box"><div id="uploadProgressBar" class="progress-bar"></div></div>
-    </div>
 
     <div class="main" style="padding-top:30px; max-width:1100px; margin: 0 auto; padding-left:20px; padding-right:20px;">
         <div style="margin-bottom:15px;"><a href="/actors" style="color:var(--muted); text-decoration:none; font-size:14px; font-weight:700;">← Back to Catalog</a></div>
         
-        <div class="actor-hero-box">
-            <div class="profile-img-wrap">
-                <img src="/api/actor/photo?id={actor_id}&v={cache_salt}">
+        <div style="display:flex; gap:25px; background:var(--card); border:1px solid var(--border); padding:25px; border-radius:12px; margin-bottom:35px; flex-wrap:wrap;">
+            <div style="width:160px; height:220px; background:var(--bg3); border-radius:8px; overflow:hidden; border:1px solid var(--border); flex-shrink:0;">
+                <img src="/api/actor/photo?id={actor_id}" style="width:100%; height:100%; object-fit:cover;">
             </div>
             <div style="flex:1; min-width:300px; display:flex; flex-direction:column; justify-content:center;">
                 <h1 style="font-size:32px; font-weight:900; color:var(--text); margin-bottom:2px;">{html.escape(actor_name)}</h1>
                 {tags_chips_html}
                 {social_html}
-                {admin_edit_btn}
+                {admin_actions_html}
             </div>
         </div>
 
         <div class="actor-tab-bar">
-            <button class="actor-tab active" onclick="switchActorTab(this, 'tab-info')">ℹ️ Info</button>
-            <button class="actor-tab" onclick="switchActorTab(this, 'tab-video')">🎬 Video</button>
-            <button class="actor-tab" onclick="switchActorTab(this, 'tab-gallery')">🖼️ Gallery</button>
+            <button class="actor-tab active" onclick="switchActorTab(event, 'tab-info')">ℹ️ Info</button>
+            <button class="actor-tab" onclick="switchActorTab(event, 'tab-video')">🎬 Video</button>
+            <button class="actor-tab" onclick="switchActorTab(event, 'tab-gallery')">🖼️ Gallery</button>
         </div>
 
         <div id="tab-info" class="actor-panel active">
@@ -318,27 +317,27 @@ async def actor_profile_display(req):
         </div>
 
         <div id="tab-video" class="actor-panel">
-            <div style="display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; align-items:center;">
-                <div style="flex:1; min-width:200px; display:flex; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:0 12px; align-items:center;">
-                    <input type="text" id="actor_movie_q" value="" placeholder="Search inside actor movies..." style="width:100%; background:transparent; border:none; padding:10px 0; color:var(--text); outline:none; font-size:14px; font-weight:600;">
+            <div class="search-zone-actor">
+                <div class="search-wrap-actor">
+                    <input type="text" id="actor_movie_q" value="{html.escape(actor_name)}" placeholder="Titles, people, genres…" class="search-input-actor">
                 </div>
-                <select id="actor_col_sel" onchange="resetActorSearchPage()" style="background:var(--bg3); color:var(--text); border:1px solid var(--border); padding:10px 14px; border-radius:8px; font-weight:700; outline:none; cursor:pointer;">
+                <select id="actor_col_sel" onchange="resetActorSearchPage()" class="sel-actor">
                     <option value="all">📂 All Collections</option>
                     <option value="primary">🟢 Primary</option>
                     <option value="cloud">🔵 Cloud</option>
                     <option value="archive">🟠 Archive</option>
                 </select>
-                <select id="actor_mode_sel" onchange="resetActorSearchPage()" style="background:var(--bg3); color:var(--text); border:1px solid var(--border); padding:10px 14px; border-radius:8px; font-weight:700; outline:none; cursor:pointer;">
+                <select id="actor_mode_sel" onchange="resetActorSearchPage()" class="sel-actor">
                     <option value="tg">🖼️ Original TG Thumb</option>
                     <option value="none">⚡ Text Only (Fastest)</option>
                 </select>
-                <button onclick="triggerActorSearchAjax()" style="background:var(--accent); color:#fff; border:none; padding:11px 24px; border-radius:8px; font-weight:700; cursor:pointer;">Filter</button>
+                <button onclick="triggerActorSearchAjax()" class="search-btn-actor">Filter</button>
             </div>
 
             <div id="actor_video_results" class="res-grid"></div>
             
-            <div class="pagination" id="actor_page_box" style="display:none; justify-content:center; gap:12px; margin-top:20px;">
-                <button class="pg-btn" id="actor_pBtn" onclick="actorPagePrev()">Previous</button>
+            <div class="pagination" id="actor_page_box" style="display:none;">
+                <button class="pg-btn" id="actor_pBtn" onclick="actorPagePrev()" disabled>Previous</button>
                 <span class="pg-info" id="actor_pgInfo">Page 1</span>
                 <button class="pg-btn" id="actor_nBtn" onclick="actorPageNext()">Next</button>
             </div>
@@ -352,39 +351,33 @@ async def actor_profile_display(req):
     <input type="hidden" id="actor_master_tags_payload" value="{tags_json_payload}">
 
     <div class="edit-modal" id="actorEditModal" onclick="if(event.target===this)closeActorEditModal()">
-        <div class="em-card">
+        <div class="em-card" style="max-width:550px; background: var(--card); border:1px solid var(--border); padding:25px; border-radius:12px;">
             <button class="em-close" onclick="closeActorEditModal()" style="position:absolute; top:15px; right:20px; background:none; border:none; color:var(--muted); font-size:24px; cursor:pointer;">&#10005;</button>
             <div class="em-title" style="font-size:18px; font-weight:700; margin-bottom:20px; color:var(--text);">✏️ Edit Actor Profile Matrix</div>
-            <form id="actorUpdateForm" onsubmit="submitActorProfileForm(event)">
+            <form action="/api/actor/update_profile" method="post">
                 <input type="hidden" name="actor_id" value="{actor_id}">
                 
                 <div class="scard-label">Actor Full Name</div>
-                <input type="text" name="name" value="{html.escape(actor_name)}" class="em-input" required>
+                <input type="text" name="name" value="{html.escape(actor_name)}" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;" required>
                 
                 <div class="scard-label">Biography Details</div>
-                <textarea name="bio" class="em-input" style="min-height:100px; font-family:inherit; line-height:1.5;" required>{safe_bio}</textarea>
+                <textarea name="bio" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); min-height:120px; font-family:inherit; padding:10px; line-height:1.5; color:var(--text); margin-bottom:15px; border-radius:6px;" required>{safe_bio}</textarea>
                 
                 <div class="scard-label">Search Tags (Comma Separated)</div>
-                <input type="text" name="tags" value="{html.escape(', '.join(tags_list))}" placeholder="e.g. SRK, Shahrukh, King Khan" class="em-input">
-
-                <div class="scard-label" style="color:var(--accent); font-weight:700;">🔄 Change Profile Photo (Optional)</div>
-                <input type="file" name="change_photo" accept="image/*" class="em-input" style="border:1px dashed var(--border); background:var(--bg3);">
+                <input type="text" name="tags" value="{html.escape(', '.join(tags_list))}" placeholder="e.g. SRK, Shahrukh, King Khan" class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
 
                 <div class="em-title" style="font-size:14px; margin-top:15px; margin-bottom:10px; color:var(--text);">🌐 Social Media Channels Matrix</div>
                 
                 <div class="scard-label">Instagram Link</div>
-                <input type="url" name="insta" value="{html.escape(social.get('instagram',''))}" placeholder="https://instagram.com/..." class="em-input">
+                <input type="url" name="insta" value="{html.escape(social.get('instagram',''))}" placeholder="https://instagram.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
                 
                 <div class="scard-label">YouTube Channel Link</div>
-                <input type="url" name="yt" value="{html.escape(social.get('youtube',''))}" placeholder="https://youtube.com/..." class="em-input">
+                <input type="url" name="yt" value="{html.escape(social.get('youtube',''))}" placeholder="https://youtube.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:15px; border-radius:6px;">
                 
                 <div class="scard-label">Twitter / X Profile Link</div>
-                <input type="url" name="twitter" value="{html.escape(social.get('twitter',''))}" placeholder="https://x.com/..." class="em-input">
+                <input type="url" name="twitter" value="{html.escape(social.get('twitter',''))}" placeholder="https://x.com/..." class="em-input" style="width:100%; background:var(--bg); border:1px solid var(--border); padding:12px; color:var(--text); margin-bottom:20px; border-radius:6px;">
                 
-                <div class="scard-label">🔗 Other Website / Channel Link</div>
-                <input type="url" name="other" value="{html.escape(social.get('other',''))}" placeholder="https://external-network.com/..." class="em-input">
-                
-                <button class="em-save-btn" type="submit" style="width:100%; background:var(--accent); color:#fff; border:none; padding:14px; font-weight:700; border-radius:6px; cursor:pointer;">Save Changes & Sync Grid</button>
+                <button class="em-save-btn" type="submit" style="width:100%; background:var(--accent); color:#fff; border:none; padding:14px; font-weight:700; border-radius:6px; cursor:pointer; font-size:15px;">Save Changes & Sync Grid</button>
             </form>
         </div>
     </div>
@@ -393,151 +386,24 @@ async def actor_profile_display(req):
         var actCurPage = 1, actOffset = 0, actNextOffset = "";
         var actLimit = 21;
 
-        function switchActorTab(btn, tabId) {{
+        function switchActorTab(evt, tabId) {{
             var panels = document.querySelectorAll('.actor-panel');
             for (var i = 0; i < panels.length; i++) {{ panels[i].classList.remove('active'); }}
             var tabs = document.querySelectorAll('.actor-tab');
             for (var j = 0; j < tabs.length; j++) {{ tabs[j].classList.remove('active'); }}
             
             document.getElementById(tabId).classList.add('active');
-            btn.classList.add('active');
+            evt.currentTarget.classList.add('active');
             if(tabId === 'tab-video' && document.getElementById('actor_video_results').innerHTML === "") {{
                 triggerActorSearchAjax();
             }}
-            localStorage.setItem('actor_active_tab', tabId);
         }}
-
-        document.addEventListener("DOMContentLoaded", function() {{
-            var savedTab = localStorage.getItem('actor_active_tab');
-            if(savedTab && document.getElementById(savedTab)) {{
-                var targetBtn = document.querySelector('[onclick*="'+savedTab+'"]');
-                if(targetBtn) targetBtn.click();
-            }}
-        }});
 
         function openActorEditModal() {{ document.getElementById('actorEditModal').classList.add('open'); }}
         function closeActorEditModal() {{ document.getElementById('actorEditModal').classList.remove('open'); }}
         function resetActorSearchPage() {{ actCurPage = 1; actOffset = 0; }}
 
-        // MULTI-UPLOAD PROGRESS NOTIFICATION PIPELINE
-        async function submitGalleryForm() {{
-            var form = document.getElementById('galleryForm');
-            var input = form.querySelector('input[type="file"]');
-            if(!input.files.length) return;
-
-            var overlay = document.getElementById('uploadNotificationOverlay');
-            var pBar = document.getElementById('uploadProgressBar');
-            var oText = document.getElementById('uploadOverlayText');
-            
-            overlay.classList.add('show');
-            oText.innerText = "वेट करें, आपकी तस्वीरें गैलरी में अपलोड हो रही हैं...";
-            pBar.style.width = "10%";
-
-            var formData = new FormData(form);
-            formData.delete('gallery_img');
-            for (var i = 0; i < input.files.length; i++) {{
-                formData.append('gallery_img', input.files[i]);
-            }}
-            pBar.style.width = "40%";
-
-            try {{
-                var res = await fetch(form.action, {{ method: 'POST', body: formData }});
-                pBar.style.width = "80%";
-                if(res.ok) {{
-                    pBar.style.width = "100%";
-                    oText.innerText = "🎉 सक्सेसफुल! स्टार गैलरी सिंक हो गई है।";
-                    setTimeout(function() {{
-                        overlay.classList.remove('show');
-                        localStorage.setItem('actor_active_tab', 'tab-gallery');
-                        window.location.reload();
-                    }}, 1000);
-                }} else {{
-                    alert("Upload packet node failure.");
-                    overlay.classList.remove('show');
-                }}
-            }} catch(e) {{
-                alert("Server pipeline error.");
-                overlay.classList.remove('show');
-            }}
-        }}
-
-        // PROFILE FORM EDIT WITH NOTIFICATION LOGIC
-        async function submitActorProfileForm(event) {{
-            event.preventDefault();
-            var form = document.getElementById('actorUpdateForm');
-            var overlay = document.getElementById('uploadNotificationOverlay');
-            var pBar = document.getElementById('uploadProgressBar');
-            var oText = document.getElementById('uploadOverlayText');
-
-            closeActorEditModal();
-            overlay.classList.add('show');
-            oText.innerText = "मेटाडाटा और प्रोफाइल फोटो सिंक हो रही है, थोड़ा वेट करें...";
-            pBar.style.width = "30%";
-
-            var formData = new FormData(form);
-            pBar.style.width = "65%";
-
-            try {{
-                var res = await fetch('/api/actor/update_profile', {{ method: 'POST', body: formData }});
-                pBar.style.width = "90%";
-                if(res.ok) {{
-                    pBar.style.width = "100%";
-                    oText.innerText = "🎉 सक्सेसफुल! प्रोफाइल डिटेल्स अपडेट हो गई हैं।";
-                    setTimeout(function() {{
-                        overlay.classList.remove('show');
-                        window.location.reload();
-                    }}, 1000);
-                }} else {{
-                    alert("Profile update failed.");
-                    overlay.classList.remove('show');
-                }}
-            }} catch(e) {{
-                alert("Network matrix crash.");
-                overlay.classList.remove('show');
-            }}
-        }}
-
-        // PURGE WHOLE PROFILE AJAX
-        async function deleteActorProfileMaster(actorId) {{
-            if(!confirm("⚠️ क्या आप सचमुच इस एक्टर की पूरी प्रोफाइल और गैलरी डेटाबेस से हमेशा के लिए डिलीट करना चाहते हैं?")) return;
-            try {{
-                var r = await fetch('/api/actor/delete_profile?id=' + actorId, {{ method: 'POST' }});
-                var res = await r.json();
-                if(res.success) {{
-                    alert("🎭 एक्टर प्रोफाइल सफलतापूर्वक डिलीट कर दी गई है।");
-                    window.location.href = '/actors';
-                }} else {{ alert("Delete execution failed."); }}
-            }} catch(e) {{ alert("Database response error."); }}
-        }}
-
-        // PURGE SINGLE GALLERY IMAGE AJAX
-        async function deleteGalleryImg(actorId, idx) {{
-            if(!confirm("क्या आप इस तस्वीर को गैलरी से हटाना चाहते हैं?")) return;
-            try {{
-                var r = await fetch('/api/actor/delete_gallery_img?id=' + actorId + '&idx=' + idx, {{ method: 'POST' }});
-                var res = await r.json();
-                if(res.success) {{
-                    localStorage.setItem('actor_active_tab', 'tab-gallery');
-                    window.location.reload();
-                }} else {{ alert("Image purge execution failed."); }}
-            }} catch(e) {{ alert("Server response error."); }}
-        }}
-
-        // ✅ UI INLINE ADMIN CONTROL TOGGLER (नाम और कार्ड को क्लिक से सुरक्षित रखने की तकनीक)
-        function toggleAdminInlineMenu(el, e) {{
-            e.stopPropagation();
-            e.preventDefault();
-            var card = el.closest('.file-card');
-            var isActive = card.classList.contains('admin-active');
-            document.querySelectorAll('.file-card.admin-active').forEach(function(c){{ c.classList.remove('admin-active'); }});
-            if(!isActive) {{ card.classList.add('admin-active'); }}
-        }}
-
-        // पूरे डॉक्युमेंट पर कहीं भी क्लिक होने पर खुला हुआ एडमिन मेनू छिप जाएगा
-        document.addEventListener('click', function() {{
-            document.querySelectorAll('.file-card.admin-active').forEach(function(c){{ c.classList.remove('admin-active'); }});
-        }});
-
+        // ✅ शत-प्रतिशत सिंक: अब लोड होने वाले कार्ड्स हूबहू डैशबोर्ड की तरह दिखेंगे (सारे बैजेस के साथ, एडिट/डिलीट बटन गायब)
         async function triggerActorSearchAjax() {{
             var q = document.getElementById('actor_movie_q').value.trim();
             var col = document.getElementById('actor_col_sel').value;
@@ -559,53 +425,28 @@ async def actor_profile_display(req):
                 var h = '';
                 d.results.forEach(function(f) {{
                     var sc = (f.source || 'primary').toLowerCase();
-                    if(!['primary','cloud','archive'].includes(sc)) sc = 'primary';
-                    
-                    // ✅ COMPONENT REBUILD UPGRADE: पूरे कार्ड को सीधा मुख्य एंकर / वॉच लिंक बना दिया गया है। 
-                    // अब आप इमेज, टेक्स्ट या खाली जगह कहीं भी सिंगल टैप करेंगे, वीडियो 100% प्ले हो जाएगा।
-                    
-                    var adminGearTrigger = '';
-                    var adminInlineRow = '';
-                    
-                    if(d.is_admin) {{
-                        // एडमिन के लिए अलग गियर आइकन जो प्ले इवेंट को डिस्टर्ब किए बिना एडिट स्लाइडर ओपन करेगा
-                        adminGearTrigger = '<div class="card-gear-trigger" onclick="toggleAdminInlineMenu(this, event)">⚙️</div>';
-                        
-                        var safeName = f.name.replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
-                        adminInlineRow = '<div class="poster-admin" onclick="event.stopPropagation(); event.preventDefault();">' +
-                            '<button class="btn-edit-inline" onclick="openCombinedEditModalDirect(\\''+f.file_id+'\\',\\''+f.raw_collection+'\\',\\''+safeName+'\\')">&#9999; Edit</button>' +
-                            '<button class="btn-del-inline" onclick="deleteFileDirect(\\''+f.file_id+'\\',\\''+f.raw_collection+'\\')">&#128465; Del</button>' +
-                        '</div>';
-                    }}
-
                     var posterHtml = '';
                     if(mode !== 'none') {{
-                        posterHtml = '<div class="poster-box" id="poster-box-'+f.file_id+'">' +
+                        posterHtml = '<div class="poster-box">' +
                             '<img src="'+f.tg_thumb+'" class="fc-poster" onload="this.classList.add(\\'loaded\\')" loading="lazy">' +
                             '<div class="poster-top">' +
                                 '<span class="type-chip">'+f.type.toUpperCase()+'</span>' +
                                 '<span class="size-chip">'+f.size+'</span>' +
                                 '<span class="source-pill '+sc+'"><span class="source-dot"></span>'+sc.toUpperCase()+'</span>' +
                             '</div>' +
-                            adminGearTrigger +
-                            adminInlineRow +
                         '</div>';
                     }} else {{
-                        // टेक्स्ट मोड में भी सेपरेट गियर ट्रिगर
                         posterHtml = '<div class="fc-text-info">' +
                             '<span class="tc-type">'+f.type.toUpperCase()+'</span>' +
                             '<span class="tc-size">'+f.size+'</span>' +
                             '<span class="source-pill '+sc+'" style="margin-left:auto"><span class="source-dot"></span>'+sc.toUpperCase()+'</span>' +
-                            (d.is_admin ? '<span style="margin-left:8px; cursor:pointer;" onclick="toggleAdminInlineMenu(this, event)">⚙️</span>' : '') +
-                            adminInlineRow +
                         '</div>';
                     }}
-                    
                     h += '<div class="file-card" onclick="window.open(\\''+f.watch+'\\',\\'_blank\\')">' + 
                         posterHtml + 
                         '<div class="fc-body">' +
-                            '<div class="fc-name" id="name-title-'+f.file_id+'">'+f.name+'</div>' +
-                        '</div>' + 
+                            '<div class="fc-name">'+f.name+'</div>' +
+                        '</div>' +
                     '</div>';
                 }});
                 grid.innerHTML = h;
@@ -619,9 +460,21 @@ async def actor_profile_display(req):
             }}
         }}
 
-        // मुख्य डैशबोर्ड मॉड्यूल्स के साथ सिंकिंग के लिए डायरेक्ट रैपर्स
-        function openCombinedEditModalDirect(fid, col, name) {{ if(typeof editFile === 'function') {{ editFile(fid, col, name); }} else {{ alert("Edit modal layout missing in master asset."); }} }}
-        function deleteFileDirect(fid, col) {{ if(typeof deleteFile === 'function') {{ deleteFile(fid, col); }} else {{ alert("Delete connection handler missing."); }} }}
+        async function deleteActorProfile(id) {{
+            if (!confirm("Are you sure you want to permanently delete this actor profile?")) return;
+            try {{
+                var r = await fetch('/api/actor/delete?id=' + id, {{ method: 'POST' }});
+                var d = await r.json();
+                if (d.success) {{
+                    alert("Profile deleted successfully!");
+                    window.location.href = '/actors';
+                }} else {{
+                    alert(d.error || "Deletion failed!");
+                }}
+            }} catch(e) {{
+                alert("Network communication error!");
+            }}
+        }}
 
         function actorPageNext() {{ if(actNextOffset) {{ actCurPage++; actOffset = actNextOffset; triggerActorSearchAjax(); window.scrollTo(0,350); }} }}
         function actorPagePrev() {{ if(actCurPage > 1) {{ actCurPage--; actOffset = Math.max(0, actOffset - actLimit); triggerActorSearchAjax(); window.scrollTo(0,350); }} }}
@@ -652,18 +505,13 @@ async def api_actor_search_handler(req):
     actor = await actors.find_one({"_id": ObjectId(actor_id)})
     if not actor: return web.json_response({"results": []})
     
+    search_query = q_custom if q_custom else actor["name"]
     tags_list = actor.get("tags", [])
     
-    if not q_custom:
-        search_query = ""
-        passing_tags = tags_list
-    else:
-        search_query = q_custom
-        passing_tags = tags_list
-    
     lim = 21
+    
     all_m, next_offset = await get_actor_search_results(
-        search_query, passing_tags, max_results=lim, offset=off, collection_type=col
+        search_query, tags_list, max_results=lim, offset=off, collection_type=col
     )
     
     results_list = []
@@ -681,13 +529,12 @@ async def api_actor_search_handler(req):
             "name": d.get("file_name", "Unknown File"),
             "size": get_size(d.get("file_size", 0)),
             "type": d.get("file_type", "document").upper(),
-            "source": source_col.lower(),
-            "raw_collection": source_col.lower(),  # एडमिन एडिट सिंकिंग के लिए आवश्यक पैकेट
+            "source": source_col.capitalize(),
             "tg_thumb": tg_thumb,
             "watch": f"/setup_stream?file_id={fid}&mode=watch"
         })
         
-    return web.json_response({"results": results_list, "next_offset": next_offset, "is_admin": role == "admin"})
+    return web.json_response({"results": results_list, "next_offset": next_offset})
 
 # ─────────────────────────────────────────────────────────
 # ⚙️ ADMIN API: UPDATE PROFILE DETAILS & SOCIAL MEDIA CHANNELS
@@ -697,116 +544,73 @@ async def api_actor_update_profile(req):
     role, _ = await get_auth(req)
     if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
     
-    try:
-        reader = await req.multipart()
-        actor_id, name, bio, tags_raw = None, None, None, ""
-        insta, yt, twitter, other = "", "", "", ""
-        change_photo_bytes = None
-
-        while True:
-            part = await reader.next()
-            if part is None: break
-            if part.name == 'actor_id': actor_id = (await part.read()).decode().strip()
-            elif part.name == 'name': name = (await part.read()).decode().strip()
-            elif part.name == 'bio': bio = (await part.read()).decode().strip()
-            elif part.name == 'tags': tags_raw = (await part.read()).decode().strip()
-            elif part.name == 'insta': insta = (await part.read()).decode().strip()
-            elif part.name == 'yt': yt = (await part.read()).decode().strip()
-            elif part.name == 'twitter': twitter = (await part.read()).decode().strip()
-            elif part.name == 'other': other = (await part.read()).decode().strip()
-            elif part.name == 'change_photo': change_photo_bytes = await part.read()
-
-        if not actor_id or not name or not bio: 
-            return web.json_response({"error": "Missing critical fields"}, status=400)
-        
-        tags_list = [t.strip() for t in tags_raw.split(",") if t.strip()]
-        
-        update_doc = {
-            "name": name,
-            "bio": bio,
-            "tags": tags_list,
-            "social_links": {"instagram": insta, "youtube": yt, "twitter": twitter, "other": other}
-        }
-        
-        if change_photo_bytes and len(change_photo_bytes) > 10:
-            with io.BytesIO(change_photo_bytes) as img_buffer:
-                img_buffer.name = f"avatar_{actor_id}.jpg"
-                msg = await temp.BOT.send_photo(chat_id=BIN_CHANNEL, photo=img_buffer)
-            if msg and msg.photo:
-                tg_photo_id = msg.photo.sizes[-1].file_id if hasattr(msg.photo, "sizes") and msg.photo.sizes else msg.photo.file_id
-                update_doc["photo_url"] = f"TG_ID:{tg_photo_id}"
-                update_doc["created_at"] = time.time()
-
-        await actors.update_one({"_id": ObjectId(actor_id)}, {"$set": update_doc})
-        return web.json_response({"success": True})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+    d = await req.post()
+    actor_id = d.get('actor_id')
+    name = d.get('name', '').strip()
+    bio = d.get('bio', '').strip()
+    tags_raw = d.get('tags', '').strip()
+    insta = d.get('insta', '').strip()
+    yt = d.get('yt', '').strip()
+    twitter = d.get('twitter', '').strip()
+    
+    if not actor_id or not name or not bio: return web.HTTPFound('/actors?err=Missing assets data')
+    
+    tags_list = [t.strip() for t in tags_raw.split(",") if t.strip()]
+    
+    update_doc = {
+        "name": name,
+        "bio": bio,
+        "tags": tags_list,
+        "social_links": {"instagram": insta, "youtube": yt, "twitter": twitter}
+    }
+    
+    await actors.update_one({"_id": ObjectId(actor_id)}, {"$set": update_doc})
+    return web.HTTPFound(f'/actor/{actor_id}?msg=Profile and Social Networks synced successfully!')
 
 # ─────────────────────────────────────────────────────────
-# 🖼️ ADMIN API: UPLOAD NATIVE IMAGE TO GALLERY (MULTI-SUPPORT)
+# 🖼️ ADMIN API: UPLOAD NATIVE IMAGE TO GALLERY
 # ─────────────────────────────────────────────────────────
 @actor_routes.post('/api/actor/gallery_upload')
 async def api_actor_gallery_upload(req):
     role, _ = await get_auth(req)
     if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
     
-    actor_id = None
     try:
         reader = await req.multipart()
-        uploaded_tg_ids = []
-        
+        actor_id, image_bytes = None, None
         while True:
             part = await reader.next()
             if part is None: break
+            if part.name == 'actor_id': actor_id = (await part.read()).decode().strip()
+            elif part.name == 'gallery_img': image_bytes = await part.read()
             
-            if part.name == 'actor_id':
-                actor_id = (await part.read()).decode().strip()
-            elif part.name == 'gallery_img':
-                img_bytes = await part.read()
-                if img_bytes and len(img_bytes) > 10:
-                    with io.BytesIO(img_bytes) as img_buffer:
-                        img_buffer.name = f"gal_{int(time.time())}.jpg"
-                        msg = await temp.BOT.send_photo(chat_id=BIN_CHANNEL, photo=img_buffer)
-                    if msg and msg.photo:
-                        tg_id = msg.photo.sizes[-1].file_id if hasattr(msg.photo, "sizes") and msg.photo.sizes else msg.photo.file_id
-                        uploaded_tg_ids.append(f"TG_ID:{tg_id}")
-            
-        if not actor_id or not uploaded_tg_ids:
-            return web.json_response({"error": "No assets packet uploaded"}, status=400)
+        if not actor_id or not image_bytes: return web.HTTPFound('/actors?err=Assets reading packet failure')
         
-        await actors.update_one(
-            {"_id": ObjectId(actor_id)}, 
-            {"$push": {"gallery": {"$each": uploaded_tg_ids}}}
-        )
-        return web.json_response({"success": True})
+        with io.BytesIO(image_bytes) as img_buffer:
+            img_buffer.name = f"gallery_{actor_id}_{int(time.time())}.jpg"
+            msg = await temp.BOT.send_photo(chat_id=BIN_CHANNEL, photo=img_buffer)
+            
+        if not msg or not msg.photo: return web.HTTPFound(f'/actor/{actor_id}?err=Telegram Node Gallery Upload Failed')
+        tg_photo_id = msg.photo.sizes[-1].file_id if hasattr(msg.photo, "sizes") and msg.photo.sizes else msg.photo.file_id
+        
+        await actors.update_one({"_id": ObjectId(actor_id)}, {"$push": {"gallery": f"TG_ID:{tg_photo_id}"}})
+        return web.HTTPFound(f'/actor/{actor_id}?msg=New portrait uploaded successfully to star gallery!')
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+        return web.HTTPFound(f'/actors?err=System core crash: {str(e)}')
 
 # ─────────────────────────────────────────────────────────
-# 🗑️ ADMIN API: PURGE INDIVIDUAL GALLERY IMAGE
+# 🗑️ ADMIN API: DELETE ACTOR PROFILE COMPLETELY
 # ─────────────────────────────────────────────────────────
-@actor_routes.post('/api/actor/delete_gallery_img')
-async def api_delete_gallery_image(req):
-    role, _ = await get_auth(req)
-    if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
-    
-    actor_id = req.query.get("id")
-    idx = req.query.get("idx")
-    if not actor_id or idx is None: return web.json_response({"error": "Missing params"}, status=400)
-    
-    success = await delete_gallery_image_by_index(actor_id, int(idx))
-    return web.json_response({"success": success})
-
-# ─────────────────────────────────────────────────────────
-# 🗑️ ADMIN API: PURGE WHOLE ACTOR PROFILE
-# ─────────────────────────────────────────────────────────
-@actor_routes.post('/api/actor/delete_profile')
-async def api_delete_actor_profile(req):
+@actor_routes.post('/api/actor/delete')
+async def api_actor_delete(req):
     role, _ = await get_auth(req)
     if role != 'admin': return web.json_response({"error": "Unauthorized"}, status=403)
     
     actor_id = req.query.get("id")
     if not actor_id: return web.json_response({"error": "Missing ID"}, status=400)
     
-    success = await delete_actor_profile(actor_id)
-    return web.json_response({"success": success})
+    try:
+        await actors.delete_one({"_id": ObjectId(actor_id)})
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
