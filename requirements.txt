@@ -11,7 +11,3 @@ Pillow
 pytz
 pyromod
 pymongo
-google-genai
-google-generativeai
-multidict
-yarl
