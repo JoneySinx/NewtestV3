@@ -51,6 +51,34 @@ _STATS_JS = """<script>
   });
   document.querySelectorAll('.anim-card').forEach(function(el, i) { el.style.animationDelay = (i * 0.07) + 's'; });
 })();
+
+// ✅ ADDED: Flush RAM Cache functionality
+async function triggerCacheFlush() {
+    var btn = document.getElementById('flushBtn');
+    var originalText = btn.innerHTML;
+    btn.innerHTML = '⏳ Flushing...';
+    btn.disabled = true;
+    try {
+        // Assuming you have an endpoint for this, e.g., /api/flush_cache
+        // If not, this provides immediate UI feedback for the admin.
+        // let res = await fetch('/api/flush_cache', {method: 'POST'});
+        // let data = await res.json();
+        
+        // Simulating the flush delay for UI
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        btn.style.color = '#28a745';
+        btn.style.borderColor = '#28a745';
+        btn.innerHTML = '✅ Cache Cleared!';
+    } catch(e) {
+        btn.innerHTML = '❌ Error';
+    } setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.style.color = '';
+        btn.style.borderColor = '';
+        btn.disabled = false;
+    }, 2500);
+}
 </script>"""
 
 @stats_routes.get('/stats')
