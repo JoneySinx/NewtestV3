@@ -8,7 +8,6 @@ import hashlib
 import asyncio
 import logging
 import urllib.parse
-import orjson
 from lru import LRU
 from aiohttp import web
 
@@ -20,16 +19,12 @@ from info import BIN_CHANNEL, ADMINS, BOT_TOKEN, MAX_WEB_RESULTS, MAX_THUMB_CACH
 from database.ia_filterdb import COLLECTIONS, get_search_results, db as filter_db
 from database.users_chats_db import db
 
+# ✅ नया: web_assets से सुपर-फास्ट JSON रिस्पांस इम्पोर्ट किया
+from web.web_assets import fast_json_response 
+
 logger = logging.getLogger(__name__)
 
 search_routes = web.RouteTableDef()
-
-# ─────────────────────────────────────────────────────────
-# ⚡ ULTRA-FAST ORJSON DUMP FUNCTION
-# ─────────────────────────────────────────────────────────
-def fast_json(data):
-    """orjson बाइट्स (bytes) में डेटा देता है, aiohttp के लिए इसे स्ट्रिंग में डिकोड करना होता है"""
-    return orjson.dumps(data).decode('utf-8')
 
 # ─────────────────────────────────────────────────────────
 # 🔤 STRICT SEARCH QUERY BUILDER (From Version 2)
@@ -210,15 +205,15 @@ async def get_user_role(req):
 
 
 # ─────────────────────────────────────────────────────────
-# 🔍 SEARCH API — Smart Pre-fetch Grid Engine (orjson dumps)
+# 🔍 SEARCH API — Smart Pre-fetch Grid Engine
 # ─────────────────────────────────────────────────────────
 @search_routes.get("/api/search")
 async def api_search(req):
     role, tg_id = await get_user_role(req)
     if not role:
-        return web.json_response({"error": "Unauthorized Access!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Unauthorized Access!"}, status=403)
     if is_rate_limited(tg_id, "web_search", 1):
-        return web.json_response({"error": "Spam Protection: Searching too fast!"}, status=429, dumps=fast_json)
+        return fast_json_response({"error": "Spam Protection: Searching too fast!"}, status=429)
 
     q = req.query.get("q", "").strip()
     off = req.query.get("offset", "0")
@@ -226,7 +221,7 @@ async def api_search(req):
     mode = req.query.get("mode", "tg").lower()
 
     if not q:
-        return web.json_response({"results": [], "total": 0, "next_offset": ""}, dumps=fast_json)
+        return fast_json_response({"results": [], "total": 0, "next_offset": ""})
     try:
         off = max(0, int(off))
     except Exception:
@@ -243,12 +238,12 @@ async def api_search(req):
             if cached["next_offset"]:
                 asyncio.create_task(bg_prefetch_worker(tg_id, q, col, mode, cached["next_offset"], lim))
 
-            return web.json_response({
+            return fast_json_response({
                 "results": cached["results"],
                 "total": off + len(cached["results"]) + (1 if cached["next_offset"] else 0),
                 "next_offset": cached["next_offset"],
                 "is_admin": role == "admin"
-            }, dumps=fast_json)
+            })
 
     current_cache_key = f"{tg_id}_{q}_{col}_{mode}_{off}"
     all_m = []
@@ -296,7 +291,7 @@ async def api_search(req):
             "tg_thumb": tg_thumb,
             "watch": f"/setup_stream?file_id={fid}&mode=watch",
             "download": f"/setup_stream?file_id={fid}&mode=download",
-            "caption": d.get("caption", ""),  # ✅ यहाँ नया बदलाव किया गया है
+            "caption": d.get("caption", ""),  
         })
 
     if off == 0 and results_list:
@@ -307,12 +302,12 @@ async def api_search(req):
             "expiry": time.time() + TRENDING_CACHE_TTL
         }
 
-    return web.json_response({
+    return fast_json_response({
         "results": results_list,
         "total": off + len(results_list) + (1 if has_more else 0),
         "next_offset": next_offset,
         "is_admin": role == "admin",
-    }, dumps=fast_json)
+    })
 
 
 # ─────────────────────────────────────────────────────────
@@ -364,7 +359,7 @@ async def setup_stream(req):
 async def setup_stream_post(req):
     role, _ = await get_user_role(req)
     if not role:
-        return web.json_response({"error": "Unauthorized Web Access!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Unauthorized Web Access!"}, status=403)
     try:
         data = await req.json()
         fid = data.get("file_id")
@@ -373,15 +368,15 @@ async def setup_stream_post(req):
         fid = req.query.get("file_id")
         mode = req.query.get("mode", "watch")
     if not fid:
-        return web.json_response({"error": "Missing file_id!"}, status=400, dumps=fast_json)
+        return fast_json_response({"error": "Missing file_id!"}, status=400)
     try:
         msg = await temp.BOT.send_cached_media(chat_id=BIN_CHANNEL, file_id=fid)
         await db.add_to_delete_queue(BIN_CHANNEL, msg.id, 3600)
         if mode == "watch":
             await db.track_video_play()
-        return web.json_response({"url": f"/{'download' if mode == 'download' else 'watch'}/{msg.id}"}, dumps=fast_json)
+        return fast_json_response({"url": f"/{'download' if mode == 'download' else 'watch'}/{msg.id}"})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500, dumps=fast_json)
+        return fast_json_response({"error": str(e)}, status=500)
 
 
 # ─────────────────────────────────────────────────────────
@@ -391,24 +386,24 @@ async def setup_stream_post(req):
 async def api_delete(req):
     role, _ = await get_user_role(req)
     if role != "admin":
-        return web.json_response({"error": "Core Admin Authorization Required!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Core Admin Authorization Required!"}, status=403)
     try:
         data = await req.json()
         fid = data.get("file_id")
         col = data.get("collection", "primary").lower()
         if col not in COLLECTIONS:
-            return web.json_response({"error": "Invalid target collection!"}, status=400, dumps=fast_json)
+            return fast_json_response({"error": "Invalid target collection!"}, status=400)
         res = await COLLECTIONS[col].delete_one({"_id": fid})
-        return web.json_response({"success": bool(res.deleted_count)}, dumps=fast_json)
+        return fast_json_response({"success": bool(res.deleted_count)})
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500, dumps=fast_json)
+        return fast_json_response({"error": str(e)}, status=500)
 
 
 @search_routes.post("/api/edit_name")
 async def api_edit_name(req):
     role, _ = await get_user_role(req)
     if role != "admin":
-        return web.json_response({"error": "Core Admin Authorization Required!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Core Admin Authorization Required!"}, status=403)
     try:
         data = await req.json()
         fid = data.get("file_id")
@@ -419,17 +414,16 @@ async def api_edit_name(req):
         target_col = data.get("target_collection", col).lower()
 
         if not fid or col not in COLLECTIONS or target_col not in COLLECTIONS:
-            return web.json_response({"error": "Missing structural inputs!"}, status=400, dumps=fast_json)
+            return fast_json_response({"error": "Missing structural inputs!"}, status=400)
 
         doc = await COLLECTIONS[col].find_one({"_id": fid})
         if not doc:
-            return web.json_response({"error": "File not found in database!"}, status=404, dumps=fast_json)
+            return fast_json_response({"error": "File not found in database!"}, status=404)
 
         update_fields = {}
         if new_name:
             update_fields["file_name"] = new_name
 
-        # ✅ यहाँ बदलाव किया गया है: अब नया टैग पुराने को पूरी तरह रिप्लेस करेगा
         update_fields["caption"] = add_caption
 
         if col != target_col:
@@ -443,10 +437,10 @@ async def api_edit_name(req):
         PREFETCH_CACHE.clear()
         TRENDING_CACHE.clear()
 
-        return web.json_response({"success": True}, dumps=fast_json)
+        return fast_json_response({"success": True})
     except Exception as e:
         logger.error(f"Edit/Transfer Error: {e}")
-        return web.json_response({"error": str(e)}, status=500, dumps=fast_json)
+        return fast_json_response({"error": str(e)}, status=500)
 
 
 # ─────────────────────────────────────────────────────────
@@ -456,7 +450,7 @@ async def api_edit_name(req):
 async def api_upload_thumb(req):
     role, _ = await get_user_role(req)
     if role != "admin":
-        return web.json_response({"error": "Core Admin Authorization Required!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Core Admin Authorization Required!"}, status=403)
     try:
         reader = await req.multipart()
         file_id_field, collection_field, image_bytes = None, None, None
@@ -472,9 +466,9 @@ async def api_upload_thumb(req):
                 image_bytes = await part.read()
 
         if not file_id_field or not collection_field or not image_bytes:
-            return web.json_response({"error": "Missing required assets!"}, status=400, dumps=fast_json)
+            return fast_json_response({"error": "Missing required assets!"}, status=400)
         if collection_field not in COLLECTIONS:
-            return web.json_response({"error": "Target collection missing!"}, status=400, dumps=fast_json)
+            return fast_json_response({"error": "Target collection missing!"}, status=400)
 
         cache_k = f"{collection_field}:{file_id_field}"
         if cache_k in thumb_cache:
@@ -482,11 +476,10 @@ async def api_upload_thumb(req):
 
         with io.BytesIO(image_bytes) as img_buffer:
             img_buffer.name = "poster.jpg"
-            # ✅ UPGRADE: पुराने मिक्स्ड 'BIN_CHANNEL' के बजाय पृथक 'THUMBNAIL_STORAGE_CHANNEL' का उपयोग
             msg = await temp.BOT.send_photo(chat_id=THUMBNAIL_STORAGE_CHANNEL, photo=img_buffer)
 
         if not msg or not msg.photo:
-            return web.json_response({"error": "Telegram Node failed!"}, status=500, dumps=fast_json)
+            return fast_json_response({"error": "Telegram Node failed!"}, status=500)
 
         try:
             new_thumb_id = (
@@ -498,7 +491,6 @@ async def api_upload_thumb(req):
             new_thumb_id = msg.photo.file_id
 
         db_save_value = f"TG_ID:{new_thumb_id}"
-        # ✅ UPGRADE: डेटाबेस में वेब कस्टमाइज्ड सिंक लॉक 'thumb_source: web' और 'is_thumb_permanent: True' लॉक किया गया
         await COLLECTIONS[collection_field].update_one(
             {"_id": file_id_field},
             {"$set": {"thumb_url": db_save_value, "thumb_source": "web", "is_thumb_permanent": True}}
@@ -508,18 +500,18 @@ async def api_upload_thumb(req):
         PREFETCH_CACHE.clear()
         TRENDING_CACHE.clear()
 
-        return web.json_response({"success": True}, dumps=fast_json)
+        return fast_json_response({"success": True})
 
     except Exception as e:
         logger.error(f"❌ Upload thumb endpoint crash: {e}")
-        return web.json_response({"error": str(e)}, status=500, dumps=fast_json)
+        return fast_json_response({"error": str(e)}, status=500)
 
 
 @search_routes.get("/api/db_stats")
 async def api_db_stats(req):
     role, _ = await get_user_role(req)
     if role != "admin":
-        return web.json_response({"error": "Admin Authorization Required!"}, status=403, dumps=fast_json)
+        return fast_json_response({"error": "Admin Authorization Required!"}, status=403)
     
     try:
         stats = await filter_db.command("dbstats")
@@ -527,13 +519,13 @@ async def api_db_stats(req):
         limit_bytes = 512 * 1024 * 1024
         percent = (used_bytes / limit_bytes) * 100
         
-        return web.json_response({
+        return fast_json_response({
             "used": get_size(used_bytes),
             "total": "512.0 MB",
             "percent": min(round(percent, 2), 100) 
-        }, dumps=fast_json)
+        })
     except Exception as e:
-        return web.json_response({"error": str(e)}, status=500, dumps=fast_json)
+        return fast_json_response({"error": str(e)}, status=500)
 
 
 @search_routes.get("/miniapp")
