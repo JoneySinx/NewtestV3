@@ -190,28 +190,95 @@ async def _search(col, raw_query: str, regex, offset: int, limit: int, lang=None
     count = 0 if bypass_count else (await col.count_documents(reg_flt) if docs else 0)
     return docs, count
 
+async def get_count(col, flt, bypass):
+    if bypass: return 1000
+    return await col.count_documents(flt)
+
 # ─────────────────────────────────────────────────────────
-# 🌐 PUBLIC SEARCH API
+# 🌐 PUBLIC SEARCH API (NEW UPGRADE: CROSS-COLLECTION MERGE)
 # ─────────────────────────────────────────────────────────
 async def get_search_results(query, max_results, offset=0, lang=None, collection_type="primary", bypass_count=False):
     if not query: return [], "", 0, collection_type
     raw_query  = str(query).strip()
     regex      = _build_regex(raw_query)
-    
+
     if not raw_query.replace('"', '').replace("'", "").strip().split() and not regex:
         return [], "", 0, collection_type
 
     results, total, actual_src = [], 0, collection_type
 
+    # 🚀 नया मल्टी-कलेक्शन (ALL) सर्च और मर्ज इंजन
     if collection_type == "all":
-        for src, col in [("primary", primary), ("cloud", cloud), ("archive", archive)]:
-            docs, cnt = await _search(col, raw_query, regex, offset, max_results, lang, bypass_count=bypass_count)
-            if docs:
-                results, total, actual_src = docs, cnt, src
-                break  
+        clean_query = raw_query.replace('"', '').replace("'", "").strip()
+        words = clean_query.split() if clean_query else []
+        strict_query = " ".join(f'"{word}"' for word in words) if words else ""
+
+        flt = None
+        is_text = False
+
+        if strict_query:
+            is_text = True
+            text_flt = {"$text": {"$search": strict_query}}
+            flt = {"$and": [text_flt, {"file_name": re.compile(lang, re.IGNORECASE)}]} if lang else text_flt
+        elif regex:
+            reg_flt = {"$or": [{"file_name": regex}, {"caption": regex}]} if USE_CAPTION_FILTER else {"file_name": regex}
+            flt = {"$and": [reg_flt, {"file_name": re.compile(lang, re.IGNORECASE)}]} if lang else reg_flt
+
+        if not flt: return [], "", 0, collection_type
+
+        # ⚡ तीनों कलेक्शन में एक साथ फास्ट काउंटिंग
+        cnt_p, cnt_c, cnt_a = await asyncio.gather(
+            get_count(primary, flt, bypass_count),
+            get_count(cloud, flt, bypass_count),
+            get_count(archive, flt, bypass_count)
+        )
+
+        total = cnt_p + cnt_c + cnt_a
+
+        # 🏷️ सोर्स का नाम डायनामिक तरीके से सेट करना
+        sources = []
+        if cnt_p > 0: sources.append("Primary")
+        if cnt_c > 0: sources.append("Cloud")
+        if cnt_a > 0: sources.append("Archive")
+
+        if len(sources) == 3: actual_src = "All"
+        elif len(sources) == 2: actual_src = f"{sources[0]}+{sources[1]}"
+        elif len(sources) == 1: actual_src = sources[0]
+        else: actual_src = "None"
+
+        # 📑 अक्रॉस-कलेक्शन (Cross-Collection) पेजिनेशन लॉजिक
+        rem_limit = max_results
+        curr_offset = offset
+
+        for col, cnt in [(primary, cnt_p), (cloud, cnt_c), (archive, cnt_a)]:
+            if cnt == 0 or rem_limit <= 0: continue
+
+            if curr_offset >= cnt:
+                curr_offset -= cnt
+                continue
+
+            cursor = col.find(flt, {"_id": 1, "file_name": 1, "file_size": 1, "file_type": 1, "file_ref": 1, "caption": 1, "thumb_url": 1})
+            if is_text:
+                cursor = cursor.sort([("score", {"$meta": "textScore"})])
+            else:
+                cursor = cursor.sort('_id', -1)
+
+            cursor.skip(curr_offset).limit(rem_limit)
+            docs = await cursor.to_list(length=rem_limit)
+
+            for doc in docs:
+                doc["file_id"] = doc["_id"]
+            results.extend(docs)
+
+            rem_limit -= len(docs)
+            curr_offset = 0
+
+    # 📂 अगर किसी ने मैन्युअली किसी बटन (Primary/Cloud/Archive) पर क्लिक किया हो
     else:
         col = COLLECTIONS.get(collection_type, primary)
         results, total = await _search(col, raw_query, regex, offset, max_results, lang, bypass_count=bypass_count)
+        actual_src = collection_type.capitalize()
+        if not results: total = 0
 
     if bypass_count:
         has_more = len(results) == max_results
