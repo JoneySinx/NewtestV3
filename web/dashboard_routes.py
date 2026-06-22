@@ -5,6 +5,9 @@ from utils import temp
 
 dashboard_routes = web.RouteTableDef()
 
+# ─────────────────────────────────────────────────────────
+# 🌐 MAIN HOMEPAGE: DASHBOARD
+# ─────────────────────────────────────────────────────────
 @dashboard_routes.get('/dashboard')
 async def dash(req):
     role, tg_id = await get_auth(req)
@@ -16,7 +19,7 @@ async def dash(req):
         if not mp.get("premium"):
             return web.HTTPFound('/premium_expired')
 
-    # ✅ HTML को सीधा और सिंपल रखा गया है, CSS/JS अब web_assets.py ग्लोबली हैंडल कर रहा है
+    # ✅ 100% DRY: कोई CSS/JS रिपीट नहीं। यह सीधे web_assets.py के ग्लोबल इंजन का उपयोग करेगा।
     body = f'''
     <div class="search-zone">
         <div class="search-row1">
@@ -52,20 +55,28 @@ async def dash(req):
     
     return build_page("Home - Fast Finder", body, "", "dash", role)
 
+# ─────────────────────────────────────────────────────────
+# 🚪 LOGOUT ROUTE
+# ─────────────────────────────────────────────────────────
 @dashboard_routes.get('/logout')
 async def logout(req):
     s_user = req.cookies.get('user_session')
     if s_user and hasattr(temp, 'USER_SESSIONS') and s_user in temp.USER_SESSIONS:
         del temp.USER_SESSIONS[s_user]
+    
     res = web.HTTPFound('/login')
     res.del_cookie('user_session')
     return res
 
+# ─────────────────────────────────────────────────────────
+# ⏳ PREMIUM EXPIRED ROUTE
+# ─────────────────────────────────────────────────────────
 @dashboard_routes.get('/premium_expired')
 async def premium_expired(req):
     role, tg_id = await get_auth(req)
     if not role:
         return web.HTTPFound('/login')
+        
     content = (
         '<div style="text-align:center;">'
         '<div style="font-size:50px;margin-bottom:15px;">&#9203;</div>'
@@ -83,6 +94,11 @@ async def premium_expired(req):
     )
     return build_page("Premium Expired", form_wrapper("Premium Expired", content), "login-bg")
 
+# ─────────────────────────────────────────────────────────
+# 🩺 KOYEB HEALTH CHECK (MICRO-VM PROTECTOR)
+# ─────────────────────────────────────────────────────────
 @dashboard_routes.get('/health')
 async def koyeb_health_check(req):
+    # Koyeb को सर्वर Alive दिखाने के लिए 200 OK रिस्पॉन्स देना जरूरी है 
+    # वरना Koyeb पोड को स्लीप मोड में डाल देता है।
     return web.json_response({"status": "alive", "platform": "koyeb"})
