@@ -13,13 +13,11 @@ from aiohttp import web
 
 # कस्टमाइज्ड कोर यूटिल्स और कन्फर्म कंट्रोल्स इम्पोर्ट्स
 from utils import temp, get_size, is_rate_limited, is_premium
-# ✅ SYNC: THUMBNAIL_STORAGE_CHANNEL को इम्पोर्ट किया गया है पृथक स्टोरेज के लिए
-from info import BIN_CHANNEL, ADMINS, BOT_TOKEN, MAX_WEB_RESULTS, MAX_THUMB_CACHE, IS_PREMIUM, USE_CAPTION_FILTER, THUMBNAIL_STORAGE_CHANNEL
-# यहाँ db_stats के लिए 'db as filter_db' ऐड किया गया है
+from info import BIN_CHANNEL, ADMINS, BOT_TOKEN, MAX_WEB_RESULTS, MAX_THUMB_CACHE, IS_PREMIUM, THUMBNAIL_STORAGE_CHANNEL
 from database.ia_filterdb import COLLECTIONS, get_search_results, db as filter_db
 from database.users_chats_db import db
 
-# ✅ नया: web_assets से सुपर-फास्ट JSON रिस्पांस इम्पोर्ट किया
+# ✅ MASTER IMPORT: web_assets से सुपर-फास्ट JSON रिस्पांस इम्पोर्ट किया
 from web.web_assets import fast_json_response 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +29,7 @@ search_routes = web.RouteTableDef()
 # ─────────────────────────────────────────────────────────
 def _build_strict_query(q: str) -> str:
     """
-    MongoDB $text search को strict AND mode में convert exponential करता है।
+    MongoDB $text search को strict AND mode में convert करता है।
     "Bijli Ka Pyaar" → `"Bijli" "Ka" "Pyaar"`
     डेटाबेस पर लोड घटाने के लिए सटीक रिज़ल्ट इंजन।
     """
@@ -43,7 +41,7 @@ def _build_strict_query(q: str) -> str:
 # ─────────────────────────────────────────────────────────
 MAX_CACHE = MAX_THUMB_CACHE
 thumb_semaphore = asyncio.Semaphore(15)
-thumb_cache = LRU(MAX_CACHE)  # ✅ C-लेंग्वेज आधारित सुपरफास्ट कैशे (Size Fixed)
+thumb_cache = LRU(MAX_CACHE)  # C-लेंग्वेज आधारित सुपरफास्ट कैशे (Size Fixed)
 thumb_locks = {}
 
 # KOYEB OPTIMIZATION: Limits reduced to 40 to protect 512MB RAM limits
@@ -132,7 +130,6 @@ async def _get_or_fetch_thumb(fid, col_name="primary", is_retry=False):
     finally:
         thumb_locks.pop(cache_key, None)
 
-
 # ─────────────────────────────────────────────────────────
 # 🔄 BACKGROUND PRE-FETCH WORKER (Controlled Warmup Load)
 # ─────────────────────────────────────────────────────────
@@ -161,7 +158,6 @@ async def bg_prefetch_worker(tg_id, q, col, mode, prefetch_offset, lim):
     except Exception as e:
         logger.error(f"❌ Prefetch worker execution failed: {e}")
 
-
 # ─────────────────────────────────────────────────────────
 # 🔒 STRICT SECURITY: Telegram initData HMAC Verification
 # ─────────────────────────────────────────────────────────
@@ -180,7 +176,6 @@ def verify_telegram_init_data(init_data: str) -> dict | None:
         return json.loads(user_str)
     except Exception:
         return None
-
 
 async def get_user_role(req):
     init_data = req.headers.get("X-Telegram-Init-Data", "").strip()
@@ -202,7 +197,6 @@ async def get_user_role(req):
             if tg_id in ADMINS: return "admin", tg_id
             if await is_premium(tg_id): return "user", tg_id
     return None, None
-
 
 # ─────────────────────────────────────────────────────────
 # 🔍 SEARCH API — Smart Pre-fetch Grid Engine
@@ -309,7 +303,6 @@ async def api_search(req):
         "is_admin": role == "admin",
     })
 
-
 # ─────────────────────────────────────────────────────────
 # 📸 THUMBNAIL API
 # ─────────────────────────────────────────────────────────
@@ -332,7 +325,6 @@ async def get_telegram_thumb(req):
 
     return web.Response(body=res, content_type="image/jpeg", headers=headers)
 
-
 # ─────────────────────────────────────────────────────────
 # 🎥 STREAM SETUP PIPELINE
 # ─────────────────────────────────────────────────────────
@@ -353,7 +345,6 @@ async def setup_stream(req):
         return web.HTTPFound(f"/{'download' if mode == 'download' else 'watch'}/{msg.id}")
     except Exception as e:
         return web.Response(text=f"❌ Error Tunneling Stream: {e}", status=500)
-
 
 @search_routes.post("/setup_stream")
 async def setup_stream_post(req):
@@ -378,7 +369,6 @@ async def setup_stream_post(req):
     except Exception as e:
         return fast_json_response({"error": str(e)}, status=500)
 
-
 # ─────────────────────────────────────────────────────────
 # ⚖️ ADMIN CONTROLS: EDIT, ADD CAPTION & TRANSFER PIPELINE
 # ─────────────────────────────────────────────────────────
@@ -397,7 +387,6 @@ async def api_delete(req):
         return fast_json_response({"success": bool(res.deleted_count)})
     except Exception as e:
         return fast_json_response({"error": str(e)}, status=500)
-
 
 @search_routes.post("/api/edit_name")
 async def api_edit_name(req):
@@ -441,7 +430,6 @@ async def api_edit_name(req):
     except Exception as e:
         logger.error(f"Edit/Transfer Error: {e}")
         return fast_json_response({"error": str(e)}, status=500)
-
 
 # ─────────────────────────────────────────────────────────
 # 📥 NATIVE THUMBNAIL UPLOAD & CACHE BUSTER API
@@ -506,7 +494,6 @@ async def api_upload_thumb(req):
         logger.error(f"❌ Upload thumb endpoint crash: {e}")
         return fast_json_response({"error": str(e)}, status=500)
 
-
 @search_routes.get("/api/db_stats")
 async def api_db_stats(req):
     role, _ = await get_user_role(req)
@@ -526,7 +513,6 @@ async def api_db_stats(req):
         })
     except Exception as e:
         return fast_json_response({"error": str(e)}, status=500)
-
 
 @search_routes.get("/miniapp")
 async def miniapp_page(req):
