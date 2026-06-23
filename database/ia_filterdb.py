@@ -174,7 +174,9 @@ async def _search(col, raw_query: str, regex, offset: int, limit: int, lang=None
         cursor.skip(offset).limit(limit)
         docs = await cursor.to_list(length=limit)
         if docs:
-            for doc in docs: doc["file_id"] = doc["_id"] 
+            for doc in docs: 
+                doc["file_id"] = doc["_id"] 
+                doc["source_col"] = col.name.lower() # ✅ FIX: Web App कलर के लिए Source Label
             count = 0 if bypass_count else await col.count_documents(text_flt)
             return docs, count
 
@@ -185,7 +187,9 @@ async def _search(col, raw_query: str, regex, offset: int, limit: int, lang=None
     cursor = col.find(reg_flt, {"_id": 1, "file_name": 1, "file_size": 1, "file_type": 1, "file_ref": 1, "caption": 1, "thumb_url": 1}).sort('_id', -1)
     cursor.skip(offset).limit(limit)
     docs = await cursor.to_list(length=limit)
-    for doc in docs: doc["file_id"] = doc["_id"]
+    for doc in docs: 
+        doc["file_id"] = doc["_id"]
+        doc["source_col"] = col.name.lower() # ✅ FIX: Web App कलर के लिए Source Label
 
     count = 0 if bypass_count else (await col.count_documents(reg_flt) if docs else 0)
     return docs, count
@@ -241,10 +245,13 @@ async def get_search_results(query, max_results, offset=0, lang=None, collection
         if cnt_c > 0: sources.append("Cloud")
         if cnt_a > 0: sources.append("Archive")
 
-        if len(sources) == 3: actual_src = "All"
-        elif len(sources) == 2: actual_src = f"{sources[0]}+{sources[1]}"
-        elif len(sources) == 1: actual_src = sources[0]
-        else: actual_src = "None"
+        # ✅ FIX: अगर फाइल 1 से ज्यादा कलेक्शन में है तो "ALL" दिखाए, नहीं तो कलेक्शन का नाम
+        if len(sources) > 1:
+            actual_src = "All"
+        elif len(sources) == 1:
+            actual_src = sources[0]
+        else:
+            actual_src = "None"
 
         # 📑 अक्रॉस-कलेक्शन (Cross-Collection) पेजिनेशन लॉजिक
         rem_limit = max_results
@@ -268,6 +275,7 @@ async def get_search_results(query, max_results, offset=0, lang=None, collection
 
             for doc in docs:
                 doc["file_id"] = doc["_id"]
+                doc["source_col"] = col.name.lower() # ✅ FIX: Web App कलर के लिए Source Label
             results.extend(docs)
 
             rem_limit -= len(docs)
@@ -381,7 +389,7 @@ async def get_actor_search_results(actor_name, tags_list, max_results, offset=0,
         if docs:
             for doc in docs:
                 doc["file_id"] = doc["_id"]
-                doc["source_col"] = col.name.lower()
+                doc["source_col"] = col.name.lower() # ✅ FIX
             results.extend(docs)
             if len(results) >= max_results:
                 results = results[:max_results]
