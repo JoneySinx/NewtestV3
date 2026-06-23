@@ -1,4 +1,5 @@
 import time
+import orjson
 from aiohttp import web
 from info import ADMINS, MAX_WEB_RESULTS
 from utils import temp
@@ -256,6 +257,10 @@ async function saveAllChanges(){
 """.replace("__LIMIT_PLACEHOLDER__", str(MAX_WEB_RESULTS))
 
 def _h(html): return web.Response(text=html.encode('utf-8','replace').decode('utf-8'), content_type='text/html', charset='utf-8')
+
+def fast_json_response(data, status=200):
+    """Ultra-fast JSON response using orjson"""
+    return web.json_response(data, status=status, dumps=lambda x: orjson.dumps(x).decode('utf-8'))
 
 async def get_auth(req):
     s_user = req.cookies.get('user_session')
